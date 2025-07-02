@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        IMPORTANT: Replace vendor-id and product-id with the actual values for your USB-to-Serial device.
+        For example, for a common CH340 chip, vendor-id might be "6790" and product-id "29987".
+        You can find these values from your hardware provider or by inspecting the device on a PC.
+    -->
+    <usb-device vendor-id="1234" product-id="5678" />
+</resources> 

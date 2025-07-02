@@ -1,0 +1,57 @@
+[versions]
+activityCompose = "1.9.0"
+activityKtx = "1.9.0"
+androidApplication = "8.9.2"
+appcompat = "1.6.1"
+composeBom = "2024.06.00"
+coreKtx = "1.13.1"
+espressoCore = "3.5.1"
+extJunit = "1.1.5"
+googleDevtoolsKsp = "1.9.23-1.0.20"
+javaxInject = "1"
+jetbrainsKotlinAndroid = "1.9.23"
+junit = "4.13.2"
+kotlin = "1.9.23"
+kotlinxCoroutines = "1.8.0"
+kotlinxSerializationJson = "1.6.3"
+lifecycleRuntimeKtx = "2.8.0"
+navigationCompose = "2.7.7"
+room = "2.6.1"
+serializationJson = "1.6.3"
+usbSerial = "3.9.0"
+
+[libraries]
+activityCompose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+activityKtx = { module = "androidx.activity:activity-ktx", version.ref = "activityKtx" }
+appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+composeBom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+coreKtx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+espressoCore = { module = "androidx.test.espresso:espresso-core", version.ref = "espressoCore" }
+extJunit = { module = "androidx.test.ext:junit", version.ref = "extJunit" }
+javaxInject = { group = "javax.inject", name = "javax.inject", version.ref = "javaxInject" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinxCoroutinesAndroid = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinxCoroutinesCore = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinxSerializationJson = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+lifecycleRuntimeKtx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+navigationCompose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+roomCompiler = { module = "androidx.room:room-compiler", version.ref = "room" }
+roomKtx = { module = "androidx.room:room-ktx", version.ref = "room" }
+roomRuntime = { module = "androidx.room:room-runtime", version.ref = "room" }
+usbSerialForAndroid = { group = "com.github.mik3y", name = "usb-serial-for-android", version.ref = "usbSerial" }
+composeUi = { module = "androidx.compose.ui:ui" }
+composeUiGraphics = { module = "androidx.compose.ui:ui-graphics" }
+composeUiToolingPreview = { module = "androidx.compose.ui:ui-tooling-preview" }
+composeMaterial3 = { module = "androidx.compose.material3:material3" }
+composeMaterialIconsExtended = { module = "androidx.compose.material:material-icons-extended" }
+
+[bundles]
+composeBundle = ["composeUi", "composeUiGraphics", "composeUiToolingPreview", "composeMaterial3"]
+roomBundle = ["roomRuntime", "roomKtx"]
+
+[plugins]
+androidApplication = { id = "com.android.application", version.ref = "androidApplication" }
+googleDevtoolsKsp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
+jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "jetbrainsKotlinAndroid" }
+kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
