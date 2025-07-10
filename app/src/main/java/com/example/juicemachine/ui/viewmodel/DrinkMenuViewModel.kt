@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class DrinkMenuUiState(
@@ -39,7 +40,7 @@ class DrinkMenuViewModel(
         loadRecipes()
         // 仅插入三种核心饮料，避免重复插入
         viewModelScope.launch {
-            val all = recipeRepository.allRecipes.first()
+            val all = recipeRepository.allRecipes.first() // 这里all就是List<Recipe>
             if (all.none { it.name == "茉莉雪芽" }) {
                 recipeRepository.insertRecipe(
                     Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, stock = 1000, juiceChannel = 1)
