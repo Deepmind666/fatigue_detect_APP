@@ -27,7 +27,7 @@ class HardwareManager(
     fun connect(onStatus: (String) -> Unit) {
         val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
         if (availableDrivers.isEmpty()) {
-            onStatus("设备未连接")
+            onStatus("--°C")
             return
         }
 
