@@ -126,15 +126,7 @@ fun EditRecipeScreen(
 fun EditRecipeScreenPreview() {
     JuiceMachineTheme {
         EditRecipeScreen(
-            recipe = Recipe(
-                id = 1,
-                name = "茉莉雪芽",
-                water = 30,
-                juice = 45,
-                price = 8,
-                stock = 10,
-                juiceChannel = 1
-            ),
+            recipe = Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1),
             onNameChange = {},
             onWaterChange = {},
             onJuiceChange = {},

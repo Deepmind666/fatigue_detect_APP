@@ -201,9 +201,9 @@ fun RecipeAdminCard(
 @Composable
 fun AdminScreenPreview() {
     val previewRecipes = listOf(
-        Recipe(id = 1, name = "茉莉雪芽", water = 30, juice = 45, price = 8, stock = 10, juiceChannel = 1),
-        Recipe(id = 2, name = "柳橙百香", water = 20, juice = 60, price = 9, stock = 10, juiceChannel = 2),
-        Recipe(id = 3, name = "满杯桑葚", water = 15, juice = 65, price = 10, stock = 10, juiceChannel = 3)
+        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1),
+        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2),
+        Recipe(id = 3, name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3)
     )
     JuiceMachineTheme {
         AdminScreen(

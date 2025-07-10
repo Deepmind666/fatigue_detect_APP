@@ -21,7 +21,7 @@ data class DrinkMenuUiState(
     val connectionStatus: String = "未连接",
     val temperature: String = "--℃",
     val selectedRecipe: Recipe? = null,
-    val recipeToEdit: Recipe = Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, stock = 0, juiceChannel = 1),
+    val recipeToEdit: Recipe = Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, remainWeight = 0, juiceChannel = 1),
     val showLoginDialog: Boolean = false,
     val loginError: Boolean = false,
     val navigateToAdmin: Boolean = false,
@@ -43,17 +43,17 @@ class DrinkMenuViewModel(
             val all = recipeRepository.allRecipes.first() // 这里all就是List<Recipe>
             if (all.none { it.name == "茉莉雪芽" }) {
                 recipeRepository.insertRecipe(
-                    Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, stock = 1000, juiceChannel = 1)
+                    Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1)
                 )
             }
             if (all.none { it.name == "柳橙百香" }) {
                 recipeRepository.insertRecipe(
-                    Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, stock = 1000, juiceChannel = 2)
+                    Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2)
                 )
             }
             if (all.none { it.name == "满杯桑葚" }) {
                 recipeRepository.insertRecipe(
-                    Recipe(name = "满杯桑葚", water = 130, juice = 150, price = 10, stock = 1000, juiceChannel = 3)
+                    Recipe(name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3)
                 )
             }
         }
@@ -122,7 +122,7 @@ class DrinkMenuViewModel(
     }
 
     fun onNavigateToEdit(recipe: Recipe?) {
-        val recipeToEdit = recipe ?: Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, stock = 0, juiceChannel = 1)
+        val recipeToEdit = recipe ?: Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, remainWeight = 0, juiceChannel = 1)
         _uiState.update { it.copy(recipeToEdit = recipeToEdit, navigateToEdit = true) }
     }
 
