@@ -117,12 +117,14 @@ fun AdminScreen(
                         ActionButton(
                             text = "一键清洗",
                             onClick = onClean,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            isPrimary = true
                         )
                         ActionButton(
                             text = "停止加水",
                             onClick = onAddWater,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            isPrimary = true
                         )
                     }
 
@@ -136,7 +138,8 @@ fun AdminScreen(
                         ActionButton(
                             text = "连接测试",
                             onClick = onTestTemp,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            isPrimary = true
                         )
                         ActionButton(
                             text = "开始制作",

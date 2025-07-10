@@ -142,7 +142,9 @@ fun Header(
         )
         Spacer(Modifier.weight(1f))
 
-        Text("温度: $temperature", fontSize = 20.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        // 只显示温度，不显示“设备未连接”字样
+        val displayTemp = if (temperature == "未连接" || temperature.isBlank()) "--°" else temperature
+        Text("温度: $displayTemp", fontSize = 20.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
     }
 }
 
