@@ -25,7 +25,8 @@ data class DrinkMenuUiState(
     val showLoginDialog: Boolean = false,
     val loginError: Boolean = false,
     val navigateToAdmin: Boolean = false,
-    val navigateToEdit: Boolean = false
+    val navigateToEdit: Boolean = false,
+    val errorMessage: String? = null // 新增错误提示
 )
 
 class DrinkMenuViewModel(
@@ -57,6 +58,9 @@ class DrinkMenuViewModel(
                 )
             }
         }
+        hardwareManager.setOnStatusListener { msg ->
+            _uiState.update { it.copy(connectionStatus = msg, errorMessage = if (msg.contains("未连接") || msg.contains("失败")) msg else null) }
+        }
         hardwareManager.connect { status ->
             _uiState.update { it.copy(temperature = status) }
         }
@@ -80,6 +84,10 @@ class DrinkMenuViewModel(
     }
 
     fun onConfirmDialog(recipe: Recipe, cupSize: String, withIce: Boolean) {
+        if (!hardwareManager.isConnected) {
+            _uiState.update { it.copy(errorMessage = "串口未连接，无法下单") }
+            return
+        }
         hardwareManager.makeJuice(recipe, withIce)
         // 下单后自动扣减剩余重量
         viewModelScope.launch {
@@ -90,18 +98,26 @@ class DrinkMenuViewModel(
     }
 
     fun onClean() {
+        // 添加调试信息
+        _uiState.update { it.copy(errorMessage = "发送清洗指令") }
         hardwareManager.sendAdminCommand(0x00)
     }
 
     fun onAddWater() {
+        // 添加调试信息
+        _uiState.update { it.copy(errorMessage = "发送停止加水指令") }
         hardwareManager.sendAdminCommand(0x01)
     }
 
     fun onTestTemp() {
+        // 添加调试信息
+        _uiState.update { it.copy(errorMessage = "发送连接测试指令") }
         hardwareManager.sendAdminCommand(0x02)
     }
 
     fun onAdminMakeJuice() {
+        // 添加调试信息
+        _uiState.update { it.copy(errorMessage = "发送开始制作指令") }
         hardwareManager.sendAdminCommand(0x04)
     }
 
@@ -192,6 +208,10 @@ class DrinkMenuViewModel(
         viewModelScope.launch {
             recipeRepository.deleteRecipe(recipe)
         }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(errorMessage = null) }
     }
 
     override fun onCleared() {

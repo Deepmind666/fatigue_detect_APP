@@ -56,7 +56,8 @@ fun DrinkMenuScreen(
     onHeaderLongClick: () -> Unit,
     onDismissDialog: () -> Unit,
     onConfirmDialog: (Recipe, String, Boolean) -> Unit,
-    onLoginAttempt: (String) -> Unit
+    onLoginAttempt: (String) -> Unit,
+    onDismissError: () -> Unit
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -113,6 +114,17 @@ fun DrinkMenuScreen(
             isError = uiState.loginError,
             onConfirm = onLoginAttempt,
             onDismiss = onDismissDialog
+        )
+    }
+
+    if (uiState.errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { onDismissError() },
+            title = { Text("提示") },
+            text = { Text(uiState.errorMessage) },
+            confirmButton = {
+                Button(onClick = { onDismissError() }) { Text("确定") }
+            }
         )
     }
 }
@@ -358,7 +370,8 @@ fun DrinkMenuScreenPreview() {
             onHeaderLongClick = {},
             onDismissDialog = {},
             onConfirmDialog = { _, _, _ -> },
-            onLoginAttempt = {}
+            onLoginAttempt = {},
+            onDismissError = {}
         )
     }
 } 

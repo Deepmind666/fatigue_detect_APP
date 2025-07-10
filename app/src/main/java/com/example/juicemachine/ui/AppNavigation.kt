@@ -41,15 +41,17 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
             DrinkMenuScreen(
                 uiState = uiState,
                 onRecipeClick = viewModel::onRecipeClick,
-                onConfirmDialog = viewModel::onConfirmDialog,
-                onDismissDialog = viewModel::onDismissDialog,
                 onHeaderLongClick = viewModel::onHeaderLongClick,
-                onLoginAttempt = viewModel::onLoginAttempt
+                onDismissDialog = viewModel::onDismissDialog,
+                onConfirmDialog = viewModel::onConfirmDialog,
+                onLoginAttempt = viewModel::onLoginAttempt,
+                onDismissError = viewModel::clearError
             )
         }
         composable(Screen.Admin.route) {
             AdminScreen(
                 recipes = uiState.recipes,
+                errorMessage = uiState.errorMessage,
                 onAddRecipe = { viewModel.onNavigateToEdit(null) },
                 onEditRecipe = viewModel::onNavigateToEdit,
                 onDeleteRecipe = viewModel::deleteRecipe,
@@ -57,7 +59,8 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 onAddWater = viewModel::onAddWater,
                 onTestTemp = viewModel::onTestTemp,
                 onConnect = viewModel::onAdminMakeJuice,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onDismissError = viewModel::clearError
             )
         }
         composable(Screen.EditRecipe.route) {

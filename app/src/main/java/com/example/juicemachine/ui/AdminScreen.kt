@@ -43,6 +43,7 @@ import com.example.juicemachine.ui.theme.JuiceMachineTheme
 @Composable
 fun AdminScreen(
     recipes: List<Recipe>,
+    errorMessage: String? = null,
     onAddRecipe: () -> Unit,
     onEditRecipe: (Recipe) -> Unit,
     onDeleteRecipe: (Recipe) -> Unit,
@@ -50,7 +51,8 @@ fun AdminScreen(
     onAddWater: () -> Unit,
     onTestTemp: () -> Unit,
     onConnect: () -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onDismissError: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -152,6 +154,18 @@ fun AdminScreen(
             }
         }
     }
+    
+    // 添加错误信息显示
+    if (errorMessage != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { onDismissError() },
+            title = { Text("调试信息") },
+            text = { Text(errorMessage) },
+            confirmButton = {
+                Button(onClick = { onDismissError() }) { Text("确定") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -215,7 +229,8 @@ fun AdminScreenPreview() {
             onAddWater = {},
             onTestTemp = {},
             onConnect = {},
-            onNavigateBack = {}
+            onNavigateBack = {},
+            onDismissError = {}
         )
     }
 }
