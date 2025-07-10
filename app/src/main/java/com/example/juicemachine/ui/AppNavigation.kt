@@ -67,7 +67,7 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 onWaterChange = viewModel::onWaterChange,
                 onJuiceChange = viewModel::onJuiceChange,
                 onPriceChange = viewModel::onPriceChange,
-                onStockChange = viewModel::onStockChange,
+                onStockChange = viewModel::onRemainWeightChange,
                 onJuiceChannelChange = viewModel::onJuiceChannelChange,
                 onSave = {
                     viewModel.saveRecipe(uiState.recipeToEdit)

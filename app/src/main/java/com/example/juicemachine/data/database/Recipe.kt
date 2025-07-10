@@ -15,6 +15,7 @@ data class Recipe(
     val water: Int,
     val juice: Int,
     val price: Int,
-    val stock: Int,
+    // 果汁剩余重量（g）
+    val remainWeight: Int,
     val juiceChannel: Int
 )

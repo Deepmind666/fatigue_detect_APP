@@ -81,6 +81,11 @@ class DrinkMenuViewModel(
 
     fun onConfirmDialog(recipe: Recipe, cupSize: String, withIce: Boolean) {
         hardwareManager.makeJuice(recipe, withIce)
+        // 下单后自动扣减剩余重量
+        viewModelScope.launch {
+            val newRemain = (recipe.remainWeight - recipe.juice).coerceAtLeast(0)
+            recipeRepository.updateRemainWeight(recipe.id, newRemain)
+        }
         _uiState.update { it.copy(selectedRecipe = null) }
     }
 
@@ -133,10 +138,10 @@ class DrinkMenuViewModel(
         }
     }
 
-    fun onStockChange(stock: String) {
+    fun onRemainWeightChange(remainWeight: String) {
         _uiState.update { currentState ->
             currentState.copy(
-                recipeToEdit = currentState.recipeToEdit.copy(stock = stock.toIntOrNull() ?: 0)
+                recipeToEdit = currentState.recipeToEdit.copy(remainWeight = remainWeight.toIntOrNull() ?: 0)
             )
         }
     }

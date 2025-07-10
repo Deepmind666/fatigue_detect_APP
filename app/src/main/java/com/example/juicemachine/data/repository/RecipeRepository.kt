@@ -23,4 +23,8 @@ class RecipeRepository(private val recipeDao: RecipeDao) {
     suspend fun getRecipeById(id: Long): Recipe? {
         return recipeDao.getRecipeById(id)
     }
+
+    suspend fun updateRemainWeight(id: Int, remainWeight: Int) {
+        recipeDao.updateRemainWeight(id, remainWeight)
+    }
 } 

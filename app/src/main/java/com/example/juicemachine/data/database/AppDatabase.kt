@@ -22,9 +22,9 @@ abstract class AppDatabase : RoomDatabase() {
         override fun onCreate(db: SupportSQLiteDatabase) {
             super.onCreate(db)
             // 在数据库创建时插入初始数据
-            db.execSQL("INSERT INTO recipes (id, name, water, juice, price, stock, juiceChannel) VALUES (1, '茉莉雪芽', 30, 45, 8, 10, 1)")
-            db.execSQL("INSERT INTO recipes (id, name, water, juice, price, stock, juiceChannel) VALUES (2, '柳橙百香', 20, 60, 9, 10, 2)")
-            db.execSQL("INSERT INTO recipes (id, name, water, juice, price, stock, juiceChannel) VALUES (3, '满杯桑葚', 15, 65, 10, 10, 3)")
+            db.execSQL("INSERT INTO recipes (id, name, water, juice, price, remainWeight, juiceChannel) VALUES (1, '茉莉雪芽', 105, 175, 8, 1000, 1)")
+            db.execSQL("INSERT INTO recipes (id, name, water, juice, price, remainWeight, juiceChannel) VALUES (2, '柳橙百香', 180, 100, 9, 1000, 2)")
+            db.execSQL("INSERT INTO recipes (id, name, water, juice, price, remainWeight, juiceChannel) VALUES (3, '满杯桑葚', 130, 150, 10, 1000, 3)")
         }
     }
 

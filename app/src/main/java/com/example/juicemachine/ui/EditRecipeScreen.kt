@@ -103,10 +103,10 @@ fun EditRecipeScreen(
             )
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
-                value = recipe.stock.toString(),
-                onValueChange = onStockChange,
-                label = { Text("库存 (杯)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                value = recipe.remainWeight.toString(),
+                onValueChange = { onStockChange(it) },
+                label = { Text("剩余重量 (g)") },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))

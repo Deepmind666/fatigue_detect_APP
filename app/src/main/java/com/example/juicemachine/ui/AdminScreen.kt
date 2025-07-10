@@ -179,7 +179,7 @@ fun RecipeAdminCard(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "库存: ${recipe.stock}杯",
+                    text = "剩余重量: ${recipe.remainWeight}g",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

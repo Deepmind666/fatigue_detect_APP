@@ -166,9 +166,9 @@ fun DrinkGrid(recipes: List<Recipe>, onRecipeSelected: (Recipe) -> Unit) {
 fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
     val painter = painterResource(id = getDrawableForRecipe(recipe.name))
 
-    val isSoldOut = recipe.stock <= 0
-    // Show low stock warning if it can make 3 or fewer drinks, but is not yet sold out.
-    val isLowStock = !isSoldOut && recipe.stock <= 3
+    val isSoldOut = recipe.remainWeight < recipe.juice
+    // Show low stock warning if还能做1-3杯，但未售罄
+    val isLowStock = !isSoldOut && (recipe.remainWeight / recipe.juice) in 1..3
 
     Card(
         modifier = Modifier.clickable(
@@ -227,14 +227,21 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = recipe.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold,
-                    minLines = 2,
-                    maxLines = 2
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = recipe.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Bold,
+                        minLines = 2,
+                        maxLines = 2
+                    )
+                    Text(
+                        text = "剩余重量：${recipe.remainWeight}g",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
             }
         }
     }
