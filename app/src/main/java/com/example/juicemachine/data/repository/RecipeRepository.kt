@@ -2,17 +2,11 @@ package com.example.juicemachine.data.repository
 
 import com.example.juicemachine.data.database.Recipe
 import com.example.juicemachine.data.database.RecipeDao
-import com.example.juicemachine.data.hardware.HardwareManager
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 
-class RecipeRepository(
-    private val recipeDao: RecipeDao,
-    private val hardwareManager: HardwareManager
-) {
+class RecipeRepository(private val recipeDao: RecipeDao) {
 
     val allRecipes: Flow<List<Recipe>> = recipeDao.getAllRecipes()
-    val isMachineConnected: Flow<Boolean> = hardwareManager.isConnected
 
     suspend fun insertRecipe(recipe: Recipe) {
         recipeDao.insertRecipe(recipe)

@@ -1,6 +1,7 @@
 package com.example.juicemachine.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
@@ -10,75 +11,71 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModel
 
+sealed class Screen(val route: String) {
+    object DrinkMenu : Screen("drink_menu")
+    object Admin : Screen("admin")
+    object EditRecipe : Screen("edit_recipe")
+}
+
 @Composable
-fun JuiceMachineApp(viewModel: DrinkMenuViewModel) {
+fun AppNavigation(viewModel: DrinkMenuViewModel) {
     val navController = rememberNavController()
     val uiState by viewModel.uiState.collectAsState()
 
-    NavHost(navController = navController, startDestination = "drink_menu") {
-        composable("drink_menu") {
+    if (uiState.navigateToAdmin) {
+        LaunchedEffect(Unit) {
+            navController.navigate(Screen.Admin.route)
+            viewModel.onAdminNavigated()
+        }
+    }
+    if (uiState.navigateToEdit) {
+        LaunchedEffect(Unit) {
+            navController.navigate(Screen.EditRecipe.route)
+            viewModel.onEditNavigated()
+        }
+    }
+
+
+    NavHost(navController = navController, startDestination = Screen.DrinkMenu.route) {
+        composable(Screen.DrinkMenu.route) {
             DrinkMenuScreen(
                 uiState = uiState,
-                onRecipeSelected = viewModel::onRecipeSelected,
-                onHeaderLongClick = viewModel::onAdminLoginRequested,
-                onDismissDialog = {
-                    viewModel.dismissDialog()
-                    viewModel.dismissLoginDialog()
-                },
-                onConfirmDialog = { recipe, cupSize ->
-                    viewModel.confirmCustomization(recipe, cupSize)
-                    viewModel.dismissDialog()
-                },
-                onMakeJuice = { /* Logic might be needed here or in VM */ },
-                onClean = viewModel::cleanMachine,
-                onAddWater = { /* TODO */ },
-                onTestTemp = { /* TODO */ },
-                onConnectClick = viewModel::connectToHardware,
-                onLoginAttempt = { password ->
-                    viewModel.onLoginAttempt(password) {
-                        navController.navigate("admin")
-                    }
-                }
+                onRecipeClick = viewModel::onRecipeClick,
+                onConfirmDialog = viewModel::onConfirmDialog,
+                onDismissDialog = viewModel::onDismissDialog,
+                onHeaderLongClick = viewModel::onHeaderLongClick,
+                onLoginAttempt = viewModel::onLoginAttempt
             )
         }
-        composable("admin") {
+        composable(Screen.Admin.route) {
             AdminScreen(
-                uiState = uiState,
-                onNavigateBack = { navController.popBackStack() },
-                onAddClick = {
-                    // Navigate to edit screen with no ID for creation
-                    navController.navigate("edit_recipe/-1")
-                },
-                onEditClick = { recipe ->
-                    navController.navigate("edit_recipe/${recipe.id}")
-                },
-                onDeleteClick = { recipe ->
-                    viewModel.deleteRecipe(recipe)
-                },
-                onCleanClick = {
-                    viewModel.cleanMachine()
-                }
+                recipes = uiState.recipes,
+                onAddRecipe = { viewModel.onNavigateToEdit(null) },
+                onEditRecipe = viewModel::onNavigateToEdit,
+                onDeleteRecipe = viewModel::deleteRecipe,
+                onClean = viewModel::onClean,
+                onAddWater = viewModel::onAddWater,
+                onTestTemp = viewModel::onTestTemp,
+                onConnect = viewModel::onAdminMakeJuice,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
-        composable(
-            "edit_recipe/{recipeId}",
-            arguments = listOf(navArgument("recipeId") { type = NavType.LongType })
-        ) { backStackEntry ->
-            val recipeId = backStackEntry.arguments?.getLong("recipeId")
+        composable(Screen.EditRecipe.route) {
             EditRecipeScreen(
-                uiState = uiState,
-                onNavigateBack = { navController.popBackStack() },
-                onSave = { recipe ->
-                    viewModel.saveRecipe(recipe)
+                recipe = uiState.recipeToEdit,
+                onNameChange = viewModel::onRecipeNameChange,
+                onWaterChange = viewModel::onWaterChange,
+                onJuiceChange = viewModel::onJuiceChange,
+                onPriceChange = viewModel::onPriceChange,
+                onStockChange = viewModel::onStockChange,
+                onJuiceChannelChange = viewModel::onJuiceChannelChange,
+                onSave = {
+                    viewModel.saveRecipe(uiState.recipeToEdit)
                     navController.popBackStack()
                 },
-                onNameChange = { viewModel.onRecipeNameChange(it) },
-                onImageUriChange = { viewModel.onImageUriChange(it) },
-                onCupConfigChange = { size, field, value ->
-                    viewModel.onCupConfigChange(size, field, value)
-                },
-                recipeId = recipeId ?: -1,
-                loadRecipeForEdit = { id -> viewModel.loadRecipeForEdit(id) }
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
             )
         }
     }

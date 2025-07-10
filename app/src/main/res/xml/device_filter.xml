@@ -5,5 +5,6 @@
         For example, for a common CH340 chip, vendor-id might be "6790" and product-id "29987".
         You can find these values from your hardware provider or by inspecting the device on a PC.
     -->
-    <usb-device vendor-id="1234" product-id="5678" />
+    <!-- IDs for CH340 -->
+    <usb-device vendor-id="6790" product-id="29987" />
 </resources> 

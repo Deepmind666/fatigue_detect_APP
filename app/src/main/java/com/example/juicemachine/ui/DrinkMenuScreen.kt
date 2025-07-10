@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -28,40 +29,49 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.example.juicemachine.R
+import com.example.juicemachine.data.database.CupConfig
 import com.example.juicemachine.data.database.Recipe
 import com.example.juicemachine.ui.theme.JuiceMachineTheme
 import com.example.juicemachine.ui.viewmodel.DrinkMenuUiState
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+
+private fun getDrawableForRecipe(recipeName: String): Int {
+    return when (recipeName) {
+        "茉莉雪芽" -> R.drawable.bin_fen_bai_guo
+        "柳橙百香" -> R.drawable.niu_you_guo
+        "满杯桑葚" -> R.drawable.tao_ni_huan_xin
+        else -> R.drawable.placeholder
+    }
+}
 
 @Composable
 fun DrinkMenuScreen(
     uiState: DrinkMenuUiState,
-    onRecipeSelected: (Recipe) -> Unit,
+    onRecipeClick: (Recipe) -> Unit,
     onHeaderLongClick: () -> Unit,
     onDismissDialog: () -> Unit,
-    onConfirmDialog: (Recipe, String) -> Unit,
-    onMakeJuice: () -> Unit,
-    onClean: () -> Unit,
-    onAddWater: () -> Unit,
-    onTestTemp: () -> Unit,
-    onConnectClick: () -> Unit,
+    onConfirmDialog: (Recipe, String, Boolean) -> Unit,
     onLoginAttempt: (String) -> Unit
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Header(
                 onLongClick = onHeaderLongClick,
-                isConnected = uiState.isMachineConnected,
-                onConnectClick = onConnectClick
+                temperature = uiState.temperature
             )
             DrinkGrid(
                 recipes = uiState.recipes,
-                onRecipeSelected = onRecipeSelected
+                onRecipeSelected = onRecipeClick
             )
         }
 
+        // The bottom action buttons are removed as they will be moved to the Admin screen.
+        /*
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -85,15 +95,16 @@ fun DrinkMenuScreen(
                 ActionButton(text = "开始制作", onClick = onMakeJuice, isPrimary = true)
             }
         }
+        */
     }
 
     if (uiState.selectedRecipe != null) {
         JuiceCustomizationDialog(
             recipe = uiState.selectedRecipe,
-            onDismiss = onDismissDialog,
-            onConfirm = { cupSize ->
-                onConfirmDialog(uiState.selectedRecipe, cupSize)
-            }
+            onConfirm = { cupSize, withIce ->
+                onConfirmDialog(uiState.selectedRecipe, cupSize, withIce)
+            },
+            onDismiss = onDismissDialog
         )
     }
 
@@ -110,8 +121,7 @@ fun DrinkMenuScreen(
 @Composable
 fun Header(
     onLongClick: () -> Unit,
-    isConnected: Boolean,
-    onConnectClick: () -> Unit
+    temperature: String
 ) {
     Row(
         modifier = Modifier
@@ -132,23 +142,7 @@ fun Header(
         )
         Spacer(Modifier.weight(1f))
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = if (isConnected) "已连接" else "未连接",
-                fontSize = 20.sp,
-                color = if (isConnected) Color(0xFF008000) else Color.Red,
-                fontWeight = FontWeight.Bold
-            )
-            if (!isConnected) {
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onConnectClick) {
-                    Text("连接")
-                }
-            }
-        }
-        Spacer(Modifier.width(16.dp))
-
-        Text("温度: --°C", fontSize = 20.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        Text("温度: $temperature", fontSize = 20.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
     }
 }
 
@@ -168,45 +162,60 @@ fun DrinkGrid(recipes: List<Recipe>, onRecipeSelected: (Recipe) -> Unit) {
 
 @Composable
 fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
+    val painter = painterResource(id = getDrawableForRecipe(recipe.name))
+
+    val isSoldOut = recipe.stock <= 0
+    // Show low stock warning if it can make 3 or fewer drinks, but is not yet sold out.
+    val isLowStock = !isSoldOut && recipe.stock <= 3
+
     Card(
-        modifier = Modifier.clickable { onRecipeSelected(recipe) },
+        modifier = Modifier.clickable(
+            enabled = !isSoldOut,
+            onClick = { onRecipeSelected(recipe) }
+        ),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val imageModifier = Modifier
-                .height(130.dp)
-                .fillMaxWidth()
+            Box(contentAlignment = Alignment.Center) {
+                Image(
+                    painter = painter,
+                    contentDescription = recipe.name,
+                    modifier = Modifier
+                        .height(130.dp)
+                        .fillMaxWidth()
+                        .alpha(if (isSoldOut) 0.5f else 1.0f),
+                    contentScale = ContentScale.Crop
+                )
 
-            when {
-                recipe.imageUri != null -> {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(recipe.imageUri)
-                            .crossfade(true)
-                            .build(),
-                        placeholder = painterResource(R.drawable.placeholder),
-                        error = painterResource(R.drawable.placeholder),
-                        contentDescription = recipe.name,
-                        modifier = imageModifier,
-                        contentScale = ContentScale.Crop
-                    )
-                }
-                recipe.imageResId != null -> {
-                    Image(
-                        painter = painterResource(id = recipe.imageResId),
-                        contentDescription = recipe.name,
-                        modifier = imageModifier,
-                        contentScale = ContentScale.Crop
-                    )
-                }
-                else -> {
-                    Image(
-                        painter = painterResource(id = R.drawable.placeholder),
-                        contentDescription = "Placeholder",
-                        modifier = imageModifier,
-                        contentScale = ContentScale.Crop
-                    )
+                if (isSoldOut) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(Color.Black.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "已售罄",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else if (isLowStock) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(Color.Black.copy(alpha = 0.4f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "库存不足警告",
+                            tint = Color.Yellow,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                 }
             }
 
@@ -232,92 +241,50 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
 @Composable
 fun JuiceCustomizationDialog(
     recipe: Recipe,
-    onDismiss: () -> Unit,
-    onConfirm: (cupSize: String) -> Unit
+    onConfirm: (cupSize: String, withIce: Boolean) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    var selectedCupSize by remember { mutableStateOf("中杯") }
-    val config = when (selectedCupSize) {
-        "大杯" -> recipe.large
-        "中杯" -> recipe.medium
-        else -> recipe.small
-    }
+    var withIce by remember { mutableStateOf(true) } // Default to normal ice
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier.width(450.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "定制您的饮品: ${recipe.name}") },
+        text = {
             Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(recipe.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(24.dp))
-
+                Text("选择冰量:")
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
                 ) {
-                    CupSizeButton("大杯", selectedCupSize == "大杯", modifier = Modifier.weight(1f)) { selectedCupSize = "大杯" }
-                    CupSizeButton("中杯", selectedCupSize == "中杯", modifier = Modifier.weight(1f)) { selectedCupSize = "中杯" }
-                    CupSizeButton("小杯", selectedCupSize == "小杯", modifier = Modifier.weight(1f)) { selectedCupSize = "小杯" }
-                }
-                Spacer(Modifier.height(24.dp))
+                    val normalIceColor = if (withIce) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+                    val noIceColor = if (!withIce) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp))
-                        .padding(16.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.Start, modifier = Modifier.fillMaxWidth()) {
-                        Text("配比详情:", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(16.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                            Text("冰: ${config.ice}g", fontSize = 18.sp)
-                            Text("果汁: ${config.juice}g", fontSize = 18.sp)
-                            Text("水: ${config.water}g", fontSize = 18.sp)
-                        }
+                    Button(onClick = { withIce = true }, colors = normalIceColor) {
+                        Text("正常冰")
+                    }
+                    Button(onClick = { withIce = false }, colors = noIceColor) {
+                        Text("去冰")
                     }
                 }
-                Spacer(Modifier.height(32.dp))
-
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Button(onClick = onDismiss, modifier = Modifier.weight(1f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray)) { Text("取消", fontSize = 16.sp) }
-                    Button(onClick = { onConfirm(selectedCupSize) }, modifier = Modifier.weight(1f).height(50.dp)) { Text("确定", fontSize = 16.sp) }
-                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm("中杯", withIce) }
+            ) {
+                Text("确认")
+            }
+        },
+        dismissButton = {
+            Button(
+                onClick = onDismiss
+            ) {
+                Text("取消")
             }
         }
-    }
-}
-
-@Composable
-fun CupSizeButton(text: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    ) {
-        Text(text, fontSize = 18.sp, maxLines = 1)
-    }
-}
-
-@Composable
-fun ActionButton(text: String, onClick: () -> Unit, isPrimary: Boolean = false) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.width(150.dp).height(60.dp),
-        colors = if (isPrimary) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary) else ButtonDefaults.buttonColors(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Text(text, fontSize = 18.sp, color = if (isPrimary) Color.White else Color.Unspecified, maxLines = 1)
-    }
+    )
 }
 
 @Composable
@@ -367,25 +334,21 @@ fun LoginDialog(
     )
 }
 
+@Preview(showBackground = true)
 @Composable
 fun DrinkMenuScreenPreview() {
+    val previewRecipes = listOf(
+        Recipe(id = 1, name = "茉莉雪芽", water = 30, juice = 45, price = 8, stock = 10, juiceChannel = 1),
+        Recipe(id = 2, name = "柳橙百香", water = 20, juice = 60, price = 9, stock = 3, juiceChannel = 2),
+        Recipe(id = 3, name = "满杯桑葚", water = 15, juice = 65, price = 10, stock = 0, juiceChannel = 3)
+    )
     JuiceMachineTheme {
-        val dummyRecipes = listOf(
-            Recipe(id = 1, name = "桃你欢心", imageResId = R.drawable.tao_ni_huan_xin),
-            Recipe(id = 2, name = "牛油果生椰拿铁", imageResId = R.drawable.niu_you_guo),
-            Recipe(id = 3, name = "鸭屎香柠檬茶", imageResId = R.drawable.ya_shi_xiang)
-        )
         DrinkMenuScreen(
-            uiState = DrinkMenuUiState(recipes = dummyRecipes),
-            onRecipeSelected = {},
+            uiState = DrinkMenuUiState(recipes = previewRecipes, temperature = "25℃"),
+            onRecipeClick = {},
             onHeaderLongClick = {},
             onDismissDialog = {},
-            onConfirmDialog = { _, _ -> },
-            onMakeJuice = {},
-            onClean = {},
-            onAddWater = {},
-            onTestTemp = {},
-            onConnectClick = {},
+            onConfirmDialog = { _, _, _ -> },
             onLoginAttempt = {}
         )
     }

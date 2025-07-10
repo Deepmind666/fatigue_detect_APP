@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class CupConfig(
-    val ice: Int,
-    val juice: Int,
-    val water: Int
+    val ice: Int = 0,
+    val juice: Int = 0,
+    val water: Int = 0
 ) 

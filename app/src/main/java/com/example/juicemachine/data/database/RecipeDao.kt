@@ -9,11 +9,17 @@ interface RecipeDao {
     @Query("SELECT * FROM recipes ORDER BY id ASC")
     fun getAllRecipes(): Flow<List<Recipe>>
 
+    @Query("DELETE FROM recipes")
+    suspend fun deleteAll()
+
     @Query("SELECT COUNT(*) FROM recipes")
     suspend fun getRecipeCount(): Int
 
     @Query("SELECT * FROM recipes WHERE id = :id")
     suspend fun getRecipeById(id: Long): Recipe?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(recipes: List<Recipe>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRecipe(recipe: Recipe)

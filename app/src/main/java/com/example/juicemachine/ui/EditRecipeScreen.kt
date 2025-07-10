@@ -37,38 +37,20 @@ import com.example.juicemachine.ui.viewmodel.DrinkMenuUiState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditRecipeScreen(
-    uiState: DrinkMenuUiState,
-    onNavigateBack: () -> Unit,
-    onSave: (Recipe) -> Unit,
+    recipe: Recipe,
     onNameChange: (String) -> Unit,
-    onImageUriChange: (String?) -> Unit,
-    onCupConfigChange: (size: String, field: String, value: String) -> Unit,
-    recipeId: Long,
-    loadRecipeForEdit: (Long) -> Unit
+    onWaterChange: (String) -> Unit,
+    onJuiceChange: (String) -> Unit,
+    onPriceChange: (String) -> Unit,
+    onStockChange: (String) -> Unit,
+    onJuiceChannelChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onNavigateBack: () -> Unit
 ) {
-    val context = LocalContext.current
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri ->
-            if (uri != null) {
-                // Persist access permissions
-                val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flag)
-                onImageUriChange(uri.toString())
-            }
-        }
-    )
-
-    LaunchedEffect(recipeId) {
-        loadRecipeForEdit(recipeId)
-    }
-
-    val recipe = uiState.recipeToEdit
-
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (recipe.id == 0L) "添加新配方" else "编辑配方") },
+                title = { Text(if (recipe.id == 0) "添加新配方" else "编辑配方") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -77,97 +59,63 @@ fun EditRecipeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { onSave(recipe) }) {
+            FloatingActionButton(onClick = onSave) {
                 Icon(Icons.Filled.Done, contentDescription = "保存")
             }
         }
     ) { paddingValues ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
                 .padding(paddingValues)
                 .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .verticalScroll(rememberScrollState())
+                .fillMaxSize()
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(uiState.recipeToEdit.imageUri ?: uiState.recipeToEdit.imageResId ?: R.drawable.placeholder)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "饮品图片",
-                modifier = Modifier
-                    .size(150.dp)
-                    .clip(MaterialTheme.shapes.medium)
-                    .clickable {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                contentScale = ContentScale.Crop,
-                placeholder = painterResource(R.drawable.placeholder),
-                error = painterResource(R.drawable.placeholder)
-            )
-
-            Spacer(Modifier.height(16.dp))
-
             OutlinedTextField(
                 value = recipe.name,
                 onValueChange = onNameChange,
-                label = { Text("饮品名称") },
+                label = { Text("配方名称") },
                 modifier = Modifier.fillMaxWidth()
             )
-
-            CupConfigEditor(
-                title = "小杯",
-                config = recipe.small,
-                onCupConfigChange = { field, value -> onCupConfigChange("小杯", field, value) }
-            )
-            CupConfigEditor(
-                title = "中杯",
-                config = recipe.medium,
-                onCupConfigChange = { field, value -> onCupConfigChange("中杯", field, value) }
-            )
-            CupConfigEditor(
-                title = "大杯",
-                config = recipe.large,
-                onCupConfigChange = { field, value -> onCupConfigChange("大杯", field, value) }
-            )
-        }
-    }
-}
-
-@Composable
-fun CupConfigEditor(
-    title: String,
-    config: CupConfig,
-    onCupConfigChange: (field: String, value: String) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
-                value = config.ice.toString(),
-                onValueChange = { onCupConfigChange("冰", it) },
-                label = { Text("冰 (g)") },
+                value = recipe.water.toString(),
+                onValueChange = onWaterChange,
+                label = { Text("水量 (ml)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
-                value = config.juice.toString(),
-                onValueChange = { onCupConfigChange("果汁", it) },
-                label = { Text("果汁 (g)") },
+                value = recipe.juice.toString(),
+                onValueChange = onJuiceChange,
+                label = { Text("果汁量 (ml)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
-                value = config.water.toString(),
-                onValueChange = { onCupConfigChange("水", it) },
-                label = { Text("水 (g)") },
+                value = recipe.price.toString(),
+                onValueChange = onPriceChange,
+                label = { Text("价格 (元)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = recipe.stock.toString(),
+                onValueChange = onStockChange,
+                label = { Text("库存 (杯)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = recipe.juiceChannel.toString(),
+                onValueChange = onJuiceChannelChange,
+                label = { Text("果汁通道 (1-3)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -178,14 +126,23 @@ fun CupConfigEditor(
 fun EditRecipeScreenPreview() {
     JuiceMachineTheme {
         EditRecipeScreen(
-            uiState = DrinkMenuUiState(recipeToEdit = Recipe(id = 0, name = "测试饮品", imageResId = 0)),
-            onNavigateBack = {},
-            onSave = {},
+            recipe = Recipe(
+                id = 1,
+                name = "茉莉雪芽",
+                water = 30,
+                juice = 45,
+                price = 8,
+                stock = 10,
+                juiceChannel = 1
+            ),
             onNameChange = {},
-            onImageUriChange = {},
-            onCupConfigChange = { _, _, _ -> },
-            recipeId = -1,
-            loadRecipeForEdit = {}
+            onWaterChange = {},
+            onJuiceChange = {},
+            onPriceChange = {},
+            onStockChange = {},
+            onJuiceChannelChange = {},
+            onSave = {},
+            onNavigateBack = {}
         )
     }
 } 
