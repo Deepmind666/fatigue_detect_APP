@@ -90,10 +90,10 @@ class HardwareManager(
         val command = ByteArray(7)
         command[0] = 0xFF.toByte()
         
-        // 修复协议匹配问题：
-        // 根据STM32代码，应该使用0x00作为用户制作指令
-        // 冰度信息通过其他方式传递或在配方中体现
-        command[1] = 0x00.toByte() // 用户制作指令，STM32会处理case 0x00
+        // 正确的协议：
+        // 0x02 = 正常冰制作指令
+        // 0x03 = 去冰制作指令
+        command[1] = if (withIce) 0x02.toByte() else 0x03.toByte()
 
         // 根据杯型计算实际配方量
         val waterAmount = when (cupSize) {
@@ -116,7 +116,8 @@ class HardwareManager(
 
         // 调试信息
         val iceStatus = if(withIce) "正常冰" else "去冰"
-        val debugMessage = "制作指令: $cupSize $iceStatus (0x00), 配方: 水=${waterAmount}g 果汁=${juiceAmount}g 通道=${recipe.juiceChannel}"
+        val commandType = if(withIce) "0x02" else "0x03"
+        val debugMessage = "制作指令: $cupSize $iceStatus ($commandType), 配方: 水=${waterAmount}g 果汁=${juiceAmount}g 通道=${recipe.juiceChannel}"
         
         Log.d("HardwareManager", debugMessage)
         Toast.makeText(context, debugMessage, Toast.LENGTH_LONG).show()
@@ -148,7 +149,7 @@ class HardwareManager(
         }
 
         scope.launch(Dispatchers.Main) {
-            Toast.makeText(context, "管理员指令: $commandName (0x${commandCode.toString(16).uppercase()})", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "管理员指令: $commandName (0x01-0x${commandCode.toString(16).uppercase()})", Toast.LENGTH_LONG).show()
         }
 
         sendCommand(command)
