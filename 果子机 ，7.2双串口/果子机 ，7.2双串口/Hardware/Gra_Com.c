@@ -1,124 +1,53 @@
-#include "hx711.h"       // °üº¬³ÆÖØ´«¸ĞÆ÷HX711µÄÇı¶¯º¯Êı
-#include "PWM.h" // °üº¬µç»ú¿ØÖÆº¯Êı
-#include "Delay.h"      // °üº¬Ê±¼äÏà¹ØµÄº¯Êı£¬ÈçHAL_Delay
-#include "serial.h"      // °üº¬´®¿ÚÊä³öº¯Êı
+#include "hx711.h"       // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ø´ï¿½ï¿½ï¿½ï¿½ï¿½HX711ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+#include "PWM.h" // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æºï¿½ï¿½ï¿½
+#include "Delay.h"      // ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ØµÄºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½HAL_Delay
+#include "serial.h"      // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-// ×èÈûÊ½ÖØÁ¦²¹³¥º¯Êı
-// ²ÎÊı£ºtargetWeight - Ä¿±êÖØÁ¿£¨µ¥Î»£º¿Ë£©
+// ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½targetWeight - Ä¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½ï¿½Ë£ï¿½
 void BlockingGravityCompensation(uint32_t targetWeight)
 {
-    // ¶¨Òå¾Ö²¿±äÁ¿£º
-    float currentWeight = 0;   // µ±Ç°ÖØÁ¿£¨¸¡µãÊı£¬¸ü¾«È·£©
-    float gap = targetWeight;   // µ±Ç°ÖØÁ¿ÓëÄ¿±êµÄ²î¾à£¨³õÊ¼»¯ÎªÄ¿±êÖØÁ¿£©
+    float currentWeight = 0;
+    float gap = targetWeight;
 
+    // 1. å¼€å§‹å‰å…ˆå»çš®ï¼Œæ¸…é›¶å½“å‰é‡é‡
+    HX711_Tare();
+    Serial2_Printf("Tare before compensation.\r\n");
 
-    // Êä³ö²¹³¥¿ªÊ¼ĞÅÏ¢£¨Í¨¹ı´®¿Ú£©
-    Serial_Printf("Starting blocking compensation for %d g\r\n", targetWeight);
+    Serial2_Printf("Starting blocking compensation for %d g\r\n", targetWeight);
     
-    // ³õ´Î³ÆÖØ£¨³õÊ¼»¯ÖØÁ¿Öµ£©
-    // HX711_GetWeight(10) - µ÷ÓÃ³ÆÖØ´«¸ĞÆ÷º¯Êı£¬²ÎÊı10±íÊ¾²ÉÑù10´ÎÈ¡Æ½¾ù
-    currentWeight = HX711_GetWeight(10);
-    
-    // ¼ÆËã³õÊ¼²î¾à
-    gap = targetWeight - currentWeight;
-    
-    // Êä³ö³õÊ¼ÖØÁ¿ºÍ²î¾à
-    Serial_Printf("Initial weight: %.2fg, Gap: %.2fg\r\n", currentWeight, gap);
-
-    // ÎŞÏŞÑ­»· - ²¹³¥¹ı³ÌµÄºËĞÄ
+    // å¾ªç¯å¼€å§‹
     while (1) {
        
-		currentWeight = HX711_GetWeight(3);
+        // 2. å®æ—¶è·å–å½“å‰é‡é‡ï¼ˆç›¸å¯¹äºå»çš®åçš„0ç‚¹ï¼‰
+        currentWeight = HX711_GetWeight(3);
         
-        // ¸üĞÂ²î¾à£¨Ä¿±ê - µ±Ç°£©
         gap = targetWeight - currentWeight;
         
-        // Êä³öµ±Ç°×´Ì¬£¨ÖØÁ¿ºÍ²î¾à£©
-        Serial_Printf("Current: %.2fg, Gap: %.2fg\r\n", currentWeight, gap);
-		 // ¼ì²éÌõ¼ş1£ºÊÇ·ñ³öÏÖ¹ı³å£¨Êµ¼ÊÖØÁ¿³¬¹ıÄ¿±ê£©
-        // gap < 0 ±íÊ¾µ±Ç°ÖØÁ¿ÒÑ¾­´óÓÚÄ¿±êÖØÁ¿£¨²¹³¥¹ı¶È£©
-        if (gap < 0) {
-            // Êä³ö´íÎóĞÅÏ¢£¨¹ı³å£©
-            Serial_Printf("Compensation failed: overfill (gap: %.2fg)\r\n", gap);
-            
-            // Í£Ö¹µç»ú£¨0±íÊ¾Í£Ö¹£¬0±íÊ¾Õ¼¿Õ±ÈÎª0£©
-            PWM_SetCompare3(0);
-            
-            // ÍË³öº¯Êı£¨Õû¸ö²¹³¥¹ı³Ì½áÊø£©
-            // *****************************************
-            // ÕâÀïÊÇÌø³öwhileÑ­»·µÄµÚÒ»¸ö·½Ê½
-            // Í¨¹ıreturnÓï¾äÖ±½ÓÍË³öº¯Êı
-            // *****************************************
-            return;
+        Serial2_Printf("Current: %.2fg, Target: %dg, Gap: %.2fg\r\n", currentWeight, targetWeight, gap);
+        
+        // 3. æ£€æŸ¥æ˜¯å¦è¾¾åˆ°æˆ–è¶…è¿‡ç›®æ ‡
+        if (gap <= 1.0f) { // å…è®¸1gçš„è¯¯å·®
+            PWM_SetCompare3(0); // åœæ­¢ç”µæœº
+            Serial2_Printf("Compensation completed (final gap: %.2fg)\r\n", gap);
+            return; // æˆåŠŸï¼Œé€€å‡ºå‡½æ•°
         }
         
-        // ¼ì²éÌõ¼ş2£ºÊÇ·ñ´ïµ½Ä¿±ê¾«¶È£¨²î¾àĞ¡ÓÚ5g£©
-        if (gap < 1.0f) {
-            // Êä³ö³É¹¦ĞÅÏ¢
-            Serial_Printf("Compensation completed (final gap: %.2fg)\r\n", gap);
-            
-            // Í£Ö¹µç»ú
-            PWM_SetCompare3(0);
-            
-            // ÍË³öº¯Êı
-            // *****************************************
-            // ÕâÀïÊÇÌø³öwhileÑ­»·µÄµÚ¶ş¸ö·½Ê½
-            // Ò²ÊÇÍ¨¹ıreturnÓï¾äÍË³öº¯Êı
-            // *****************************************
-            return;
-        }
-        
-        // ¸ù¾İµ±Ç°²î¾àÑ¡ÔñºÏÊÊµÄËÙ¶ÈÄ£Ê½
-        // Ìõ¼ş3£º²î¾àĞ¡ÓÚ20g£¨½øÈëµÍËÙÄ£Ê½£©
+        // 4. æ ¹æ®å·®è·è°ƒæ•´é€Ÿåº¦ (PIDç®€æ˜“æ§åˆ¶)
         if (gap < 10.0f) {
-            // ¼ì²éÊÇ·ñĞèÒª¸Ä±äÄ£Ê½£¨±ÜÃâÖØ¸´ÉèÖÃÏàÍ¬µÄÄ£Ê½£©
-            
-                
-                // ¿ØÖÆµç»ú£¨3±íÊ¾ÌØ¶¨µç»ú£¬60%Õ¼¿Õ±È£©
-                PWM_SetCompare3(30);
-                
-                // Êä³öÄ£Ê½ÇĞ»»ĞÅÏ¢
-                Serial_Printf("Switching to LOW speed mode\r\n");
-
-			}
-		else if (gap < 20.0f) {
-                PWM_SetCompare3(35);  // 90%Õ¼¿Õ±È
-                Serial_Printf("Switching to MEDIUM speed mode\r\n");
-            }
-		else if (gap < 40.0f) {
-                PWM_SetCompare3(40);  // 90%Õ¼¿Õ±È
-                Serial_Printf("Switching to MEDIUM speed mode\r\n");
-            }
-        // Ìõ¼ş4£º²î¾àĞ¡ÓÚ50g£¨½øÈëÖĞËÙÄ£Ê½£©
+            PWM_SetCompare3(30); // ä½é€Ÿ
+        }
+        else if (gap < 40.0f) {
+            PWM_SetCompare3(45); // ä¸­é€Ÿ
+        }
         else if (gap < 80.0f) {
-                PWM_SetCompare3(60);  // 90%Õ¼¿Õ±È
-                Serial_Printf("Switching to MEDIUM speed mode\r\n");
-            }
-        
-        // Ìõ¼ş5£º²î¾à´óÓÚµÈÓÚ50g£¨¸ßËÙÄ£Ê½£©
+            PWM_SetCompare3(60); // è¾ƒé«˜é€Ÿ
+        }
         else {
-                PWM_SetCompare3(100); // 80%Õ¼¿Õ±È
-                Serial_Printf("Switching to HIGH speed mode\r\n");
-            }
+            PWM_SetCompare3(80); // é«˜é€Ÿ
+        }
         
-        
-        // ¶ÌÔİÑÓÊ±£¨100ºÁÃë£©
-        // Ä¿µÄ£ºÈÃÒºÌåÁ÷¶¯Ê±¼ä£¬±ÜÃâ¹ıÓÚÆµ·±µÄ³ÆÖØ
-        Delay_ms(100);
-//        
-//        // ÖØĞÂ³ÆÖØ£¨²ÎÊı5±íÊ¾²ÉÑù5´ÎÈ¡Æ½¾ù£¬¸ü¿ìµ«¾«¶ÈÉÔµÍ£©
-//        currentWeight = HX711_GetWeight(2);
-//        
-//        // ¸üĞÂ²î¾à£¨Ä¿±ê - µ±Ç°£©
-//        gap = targetWeight - currentWeight;
-//        
-//        // Êä³öµ±Ç°×´Ì¬£¨ÖØÁ¿ºÍ²î¾à£©
-//        Serial_Printf("Current: %.2fg, Gap: %.2fg\r\n", currentWeight, gap);
-        
-        // *****************************************
-        // Ñ­»·½«ÔÙ´ÎÖ´ĞĞ£¨while(1)±£Ö¤ÎŞÏŞÑ­»·£©
-        // µ«ºóĞøÍ¨¹ıÅĞ¶ÏÌõ¼şÖĞµÄreturnÓï¾äÌø³öÑ­»·
-        // *****************************************
-    }  // whileÑ­»·½áÊø
-}  // º¯Êı½áÊø
+        Delay_ms(50); // æ¯æ¬¡å¾ªç¯å»¶è¿Ÿ50msï¼Œé˜²æ­¢è¿‡äºé¢‘ç¹çš„è¯»å–å’Œæ§åˆ¶
+    }
+}
 

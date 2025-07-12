@@ -57,9 +57,9 @@ fun AdminScreen(
     onEditRecipe: (Recipe) -> Unit,
     onDeleteRecipe: (Recipe) -> Unit,
     onClean: () -> Unit,
-    onAddWater: () -> Unit,
-    onTestTemp: () -> Unit,
-    onConnect: () -> Unit,
+    onStop: () -> Unit,
+    onTare: () -> Unit,
+    onWeigh: () -> Unit,
     onNavigateBack: () -> Unit,
     onDismissError: () -> Unit = {},
     onRestoreDefaults: () -> Unit = {}
@@ -137,10 +137,11 @@ fun AdminScreen(
                                 isPrimary = true
                             )
                             ActionButton(
-                                text = "停止加水",
-                                onClick = onAddWater,
+                                text = "紧急停止",
+                                onClick = onStop,
                                 modifier = Modifier.weight(1f),
-                                isPrimary = true
+                                isPrimary = false,
+                                color = MaterialTheme.colorScheme.error
                             )
                         }
 
@@ -152,14 +153,14 @@ fun AdminScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             ActionButton(
-                                text = "连接测试",
-                                onClick = onTestTemp,
+                                text = "去皮",
+                                onClick = onTare,
                                 modifier = Modifier.weight(1f),
                                 isPrimary = true
                             )
                             ActionButton(
-                                text = "测试制作",
-                                onClick = onConnect,
+                                text = "称重",
+                                onClick = onWeigh,
                                 modifier = Modifier.weight(1f),
                                 isPrimary = true
                             )
@@ -313,9 +314,9 @@ fun AdminScreenPreview() {
             onEditRecipe = {},
             onDeleteRecipe = {},
             onClean = {},
-            onAddWater = {},
-            onTestTemp = {},
-            onConnect = {},
+            onStop = {},
+            onTare = {},
+            onWeigh = {},
             onNavigateBack = {},
             onDismissError = {},
             onRestoreDefaults = {}
@@ -328,7 +329,8 @@ fun ActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isPrimary: Boolean = false
+    isPrimary: Boolean = false,
+    color: Color = MaterialTheme.colorScheme.onPrimary
 ) {
     Button(
         onClick = onClick,
@@ -338,7 +340,7 @@ fun ActionButton(
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (isPrimary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-            contentColor = MaterialTheme.colorScheme.onPrimary
+            contentColor = color
         )
     ) {
         Text(text = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)

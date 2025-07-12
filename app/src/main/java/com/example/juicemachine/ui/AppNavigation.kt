@@ -56,9 +56,9 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 onEditRecipe = viewModel::onNavigateToEdit,
                 onDeleteRecipe = viewModel::deleteRecipe,
                 onClean = viewModel::onClean,
-                onAddWater = viewModel::onAddWater,
-                onTestTemp = viewModel::onTestTemp,
-                onConnect = viewModel::onAdminMakeJuice,
+                onStop = viewModel::onStopAction,
+                onTare = viewModel::onTare,
+                onWeigh = viewModel::onWeigh,
                 onNavigateBack = { navController.popBackStack() },
                 onDismissError = viewModel::clearError,
                 onRestoreDefaults = viewModel::restoreDefaultRecipes

@@ -86,37 +86,32 @@ class HardwareManager(
     }
 
     fun makeJuice(recipe: Recipe, cupSize: String, withIce: Boolean) {
-        // 7字节：0xFF + 5字节有效数据 + 0xFE
         val command = ByteArray(7)
         command[0] = 0xFF.toByte()
-        
-        // 根据STM32代码分析，正确的协议应该是：
-        // 0x01 = 配方设置指令（STM32会处理并执行制作）
-        // 这个指令会同时设置配方并触发制作流程
-        command[1] = 0x01.toByte()
 
-        // 根据杯型计算实际配方量
+        // 1. 指令码根据冰度决定: 0x01=正常冰, 0x02=去冰
+        command[1] = if (withIce) 0x01.toByte() else 0x02.toByte()
+
+        // 2. 根据新的大杯计算逻辑调整配方
         val waterAmount = when (cupSize) {
-            "大杯" -> (recipe.water * 1.3).toInt() // 大杯增加30%
-            else -> recipe.water // 中杯使用原配方
+            "大杯" -> recipe.water + 30
+            else -> recipe.water
         }
         
         val juiceAmount = when (cupSize) {
-            "大杯" -> (recipe.juice * 1.3).toInt() // 大杯增加30%
-            else -> recipe.juice // 中杯使用原配方
+            "大杯" -> recipe.juice + 70
+            else -> recipe.juice
         }
 
-        // 根据STM32端期望：A、B、C、D分别代表4个通道的投放量
-        // 需要根据juiceChannel决定哪个通道投放果汁，其他通道为0
-        command[2] = (waterAmount and 0xFF).toByte() // materialA - 水量
-        command[3] = if (recipe.juiceChannel == 1) (juiceAmount and 0xFF).toByte() else 0x00 // materialB - 果汁通道1
-        command[4] = if (recipe.juiceChannel == 2) (juiceAmount and 0xFF).toByte() else 0x00 // materialC - 果汁通道2
-        command[5] = if (recipe.juiceChannel == 3) (juiceAmount and 0xFF).toByte() else 0x00 // materialD - 果汁通道3
+        // 3. 填充配方数据
+        command[2] = (waterAmount and 0xFF).toByte()
+        command[3] = if (recipe.juiceChannel == 1) (juiceAmount and 0xFF).toByte() else 0x00
+        command[4] = if (recipe.juiceChannel == 2) (juiceAmount and 0xFF).toByte() else 0x00
+        command[5] = if (recipe.juiceChannel == 3) (juiceAmount and 0xFF).toByte() else 0x00
         command[6] = 0xFE.toByte()
 
-        // 调试信息
-        val iceStatus = if(withIce) "正常冰" else "去冰"
-        val debugMessage = "制作指令: $cupSize $iceStatus (0x01-配方设置), 配方: 水=${waterAmount}g 果汁=${juiceAmount}g 通道=${recipe.juiceChannel}"
+        val iceStatus = if(withIce) "正常冰(0x01)" else "去冰(0x02)"
+        val debugMessage = "制作指令: $cupSize $iceStatus, 配方: 水=${waterAmount}g 果汁=${juiceAmount}g 通道=${recipe.juiceChannel}"
         
         Log.d("HardwareManager", debugMessage)
         Toast.makeText(context, debugMessage, Toast.LENGTH_LONG).show()
@@ -124,25 +119,20 @@ class HardwareManager(
         sendCommand(command)
     }
 
-    // Admin commands - 根据STM32代码，管理员指令使用不同的指令码
+    // 4. 修正管理员指令码: 0x03=清洗, 0x04=停止, 0x05=去皮, 0x06=称重
     fun sendAdminCommand(commandCode: Int) {
-        // 7字节：0xFF + 5字节有效数据 + 0xFE
         val command = byteArrayOf(
             0xFF.toByte(),
-            commandCode.toByte(), // 直接使用指令码作为类型
-            0x00, // Data1
-            0x00, // Data2
-            0x00, // Data3
-            0x00, // Data4
+            commandCode.toByte(),
+            0x00, 0x00, 0x00, 0x00,
             0xFE.toByte()
         )
 
-        // 添加管理员指令的调试信息
         val commandName = when (commandCode) {
-            0x02 -> "管理员清洗开始"
-            0x03 -> "管理员清洗结束"
-            0x04 -> "管理员去皮指令"
-            0x05 -> "管理员称重"
+            0x03 -> "管理员清洗"
+            0x04 -> "管理员停止"
+            0x05 -> "管理员去皮"
+            0x06 -> "管理员称重"
             else -> "未知管理员指令"
         }
 
