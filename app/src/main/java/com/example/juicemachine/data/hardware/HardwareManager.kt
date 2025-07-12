@@ -90,10 +90,10 @@ class HardwareManager(
         val command = ByteArray(7)
         command[0] = 0xFF.toByte()
         
-        // 正确的协议：
-        // 0x02 = 正常冰制作指令
-        // 0x03 = 去冰制作指令
-        command[1] = if (withIce) 0x02.toByte() else 0x03.toByte()
+        // 根据STM32代码分析，正确的协议应该是：
+        // 0x01 = 配方设置指令（STM32会处理并执行制作）
+        // 这个指令会同时设置配方并触发制作流程
+        command[1] = 0x01.toByte()
 
         // 根据杯型计算实际配方量
         val waterAmount = when (cupSize) {
@@ -116,8 +116,7 @@ class HardwareManager(
 
         // 调试信息
         val iceStatus = if(withIce) "正常冰" else "去冰"
-        val commandType = if(withIce) "0x02" else "0x03"
-        val debugMessage = "制作指令: $cupSize $iceStatus ($commandType), 配方: 水=${waterAmount}g 果汁=${juiceAmount}g 通道=${recipe.juiceChannel}"
+        val debugMessage = "制作指令: $cupSize $iceStatus (0x01-配方设置), 配方: 水=${waterAmount}g 果汁=${juiceAmount}g 通道=${recipe.juiceChannel}"
         
         Log.d("HardwareManager", debugMessage)
         Toast.makeText(context, debugMessage, Toast.LENGTH_LONG).show()
@@ -125,14 +124,13 @@ class HardwareManager(
         sendCommand(command)
     }
 
-    // Admin commands are identified by command code 0x01
+    // Admin commands - 根据STM32代码，管理员指令使用不同的指令码
     fun sendAdminCommand(commandCode: Int) {
         // 7字节：0xFF + 5字节有效数据 + 0xFE
-        // 根据指令表：所有管理员指令都使用Type=0x01，具体功能码放在byte[2]位置
         val command = byteArrayOf(
             0xFF.toByte(),
-            0x01.toByte(), // Type: 固定为管理员功能类型
-            commandCode.toByte(), // Data1: 具体的功能码(0x00清洗, 0x01停水, 0x02测试, 0x04制作)
+            commandCode.toByte(), // 直接使用指令码作为类型
+            0x00, // Data1
             0x00, // Data2
             0x00, // Data3
             0x00, // Data4
@@ -141,15 +139,15 @@ class HardwareManager(
 
         // 添加管理员指令的调试信息
         val commandName = when (commandCode) {
-            0x00 -> "一键清洗"
-            0x01 -> "停止加水"
-            0x02 -> "连接测试"
-            0x04 -> "开始制作"
-            else -> "未知指令"
+            0x02 -> "管理员清洗开始"
+            0x03 -> "管理员清洗结束"
+            0x04 -> "管理员去皮指令"
+            0x05 -> "管理员称重"
+            else -> "未知管理员指令"
         }
 
         scope.launch(Dispatchers.Main) {
-            Toast.makeText(context, "管理员指令: $commandName (0x01-0x${commandCode.toString(16).uppercase()})", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "管理员指令: $commandName (0x${commandCode.toString(16).uppercase()})", Toast.LENGTH_LONG).show()
         }
 
         sendCommand(command)

@@ -108,26 +108,26 @@ class DrinkMenuViewModel(
 
     fun onClean() {
         // 添加调试信息
-        _uiState.update { it.copy(errorMessage = "发送清洗指令") }
-        hardwareManager.sendAdminCommand(0x00)
+        _uiState.update { it.copy(errorMessage = "发送清洗开始指令") }
+        hardwareManager.sendAdminCommand(0x02)
     }
 
     fun onAddWater() {
         // 添加调试信息
-        _uiState.update { it.copy(errorMessage = "发送停止加水指令") }
-        hardwareManager.sendAdminCommand(0x01)
+        _uiState.update { it.copy(errorMessage = "发送清洗结束指令") }
+        hardwareManager.sendAdminCommand(0x03)
     }
 
     fun onTestTemp() {
         // 添加调试信息
-        _uiState.update { it.copy(errorMessage = "发送连接测试指令") }
-        hardwareManager.sendAdminCommand(0x02)
+        _uiState.update { it.copy(errorMessage = "发送去皮指令") }
+        hardwareManager.sendAdminCommand(0x04)
     }
 
     fun onAdminMakeJuice() {
         // 添加调试信息
-        _uiState.update { it.copy(errorMessage = "发送开始制作指令") }
-        hardwareManager.sendAdminCommand(0x04)
+        _uiState.update { it.copy(errorMessage = "发送称重指令") }
+        hardwareManager.sendAdminCommand(0x05)
     }
 
     fun onHeaderLongClick() {
