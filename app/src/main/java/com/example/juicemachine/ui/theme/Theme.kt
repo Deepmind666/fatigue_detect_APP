@@ -12,12 +12,24 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
-    primary = BrandBlue,
+    primary = FreshOrange,
     onPrimary = Color.White,
-    background = Color.White,
-    surface = LightGrey,
+    primaryContainer = LightFruit,
+    onPrimaryContainer = DeepFruit,
+    secondary = FreshGreen,
+    onSecondary = Color.White,
+    secondaryContainer = FreshCream,
+    onSecondaryContainer = DeepFruit,
+    tertiary = FreshYellow,
+    onTertiary = Color.White,
+    background = WarmBeige,
+    onBackground = DarkGrey,
+    surface = Color.White,
     onSurface = DarkGrey,
-    onBackground = DarkGrey
+    surfaceVariant = LightGrey,
+    onSurfaceVariant = DarkGrey,
+    error = StatusRed,
+    onError = Color.White
 )
 
 @Composable

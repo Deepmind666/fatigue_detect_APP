@@ -60,7 +60,8 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 onTestTemp = viewModel::onTestTemp,
                 onConnect = viewModel::onAdminMakeJuice,
                 onNavigateBack = { navController.popBackStack() },
-                onDismissError = viewModel::clearError
+                onDismissError = viewModel::clearError,
+                onRestoreDefaults = viewModel::restoreDefaultRecipes
             )
         }
         composable(Screen.EditRecipe.route) {

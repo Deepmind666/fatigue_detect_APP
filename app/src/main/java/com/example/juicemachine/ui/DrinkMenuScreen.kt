@@ -35,16 +35,26 @@ import com.example.juicemachine.R
 import com.example.juicemachine.data.database.CupConfig
 import com.example.juicemachine.data.database.Recipe
 import com.example.juicemachine.ui.theme.JuiceMachineTheme
+import com.example.juicemachine.ui.theme.AccentOrange
 import com.example.juicemachine.ui.viewmodel.DrinkMenuUiState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.text.style.TextOverflow
 
 private fun getDrawableForRecipe(recipeName: String): Int {
     return when (recipeName) {
-        "茉莉雪芽" -> R.drawable.bin_fen_bai_guo
-        "柳橙百香" -> R.drawable.niu_you_guo
-        "满杯桑葚" -> R.drawable.tao_ni_huan_xin
+       "茉莉雪芽" -> R.drawable.mo_li_xue_ya
+       "柳橙百香" -> R.drawable.liu_cheng_bai_xiang
+       "满杯桑葚" -> R.drawable.man_bei_sang_shen 
         else -> R.drawable.placeholder
     }
 }
@@ -135,38 +145,109 @@ fun Header(
     onLongClick: () -> Unit,
     temperature: String
 ) {
-    Row(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = {},
                 onLongClick = onLongClick
-            )
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            "智能茶饮系统",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onPrimaryContainer
+            ),
+        shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
         )
-        Spacer(Modifier.weight(1f))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                )
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // 品牌logo区域
+                Card(
+                    modifier = Modifier.size(36.dp), // 进一步减小logo尺寸
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.White.copy(alpha = 0.2f)
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "🍊",
+                            fontSize = 18.sp // 减小emoji大小
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(12.dp)) // 减少间距
+                
+                // 品牌名称
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "果然新鲜",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontSize = 20.sp, // 减小字体
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "FreshFruit",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 12.sp, // 减小字体
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                }
+                
+                Spacer(Modifier.weight(1f))
 
-        // 只显示温度，不显示“设备未连接”字样
-        val displayTemp = if (temperature == "未连接" || temperature.isBlank()) "--°" else temperature
-        Text("温度: $displayTemp", fontSize = 20.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                // 温度显示区域
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.White.copy(alpha = 0.2f)
+                    )
+                ) {
+                    val displayTemp = if (temperature == "未连接" || temperature.isBlank()) "--°" else temperature
+                    Text(
+                        text = "温度: $displayTemp",
+                        fontSize = 14.sp, // 减小温度字体
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp) // 减少padding
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
 fun DrinkGrid(recipes: List<Recipe>, onRecipeSelected: (Recipe) -> Unit) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(4),
-        modifier = Modifier.padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        columns = GridCells.Fixed(3), // 固定3列，更适合平板屏幕
+        modifier = Modifier
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 12.dp)
     ) {
         items(recipes) { recipe ->
             DrinkCard(recipe, onRecipeSelected)
@@ -179,79 +260,154 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
     val painter = painterResource(id = getDrawableForRecipe(recipe.name))
 
     val isSoldOut = recipe.remainWeight < recipe.juice
-    // Show low stock warning if还能做1-3杯，但未售罄
     val isLowStock = !isSoldOut && (recipe.remainWeight / recipe.juice) in 1..3
 
     Card(
-        modifier = Modifier.clickable(
-            enabled = !isSoldOut,
-            onClick = { onRecipeSelected(recipe) }
+        onClick = { onRecipeSelected(recipe) },
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 8.dp,
+            pressedElevation = 12.dp,
+            hoveredElevation = 10.dp
         ),
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        enabled = !isSoldOut,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSoldOut) Color.Gray.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+        )
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(contentAlignment = Alignment.Center) {
-                Image(
-                    painter = painter,
-                    contentDescription = recipe.name,
-                    modifier = Modifier
-                        .height(130.dp)
-                        .fillMaxWidth()
-                        .alpha(if (isSoldOut) 0.5f else 1.0f),
-                    contentScale = ContentScale.Crop
-                )
+        Box(
+            modifier = Modifier.aspectRatio(0.85f) // 调整比例以更好适应图片比例
+        ) {
+            // Background - 添加背景色
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White) // 使用白色背景更好地显示图片
+            )
+            
+            // Background Image
+            Image(
+                painter = painter,
+                contentDescription = recipe.name,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(4.dp), // 添加小的padding确保图片不贴边
+                contentScale = ContentScale.Fit, // 使用Fit确保图片完整显示
+                alpha = if (isSoldOut) 0.3f else 1.0f
+            )
 
-                if (isSoldOut) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Color.Black.copy(alpha = 0.6f)),
-                        contentAlignment = Alignment.Center
+            if (isSoldOut) {
+                // 售罄遮罩
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color.Red.copy(alpha = 0.9f)
+                        )
                     ) {
                         Text(
-                            "已售罄",
+                            text = "售罄",
                             color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                } else if (isLowStock) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Color.Black.copy(alpha = 0.4f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "库存不足警告",
-                            tint = Color.Yellow,
-                            modifier = Modifier.size(48.dp)
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // 内容区域
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 底部信息区域
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.7f)
+                                )
+                            )
+                        )
+                        .padding(12.dp)
+                ) {
+                    // 饮品名称
                     Text(
                         text = recipe.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontSize = 18.sp, // 增大字体
+                        color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        minLines = 2,
-                        maxLines = 2
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    
+                    Spacer(Modifier.height(8.dp))
+                    
+                    // 库存状态条和剩余重量
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 库存状态条
+                        val stockRatio = (recipe.remainWeight.toFloat() / (recipe.juice * 10)).coerceIn(0f, 1f)
+                        val stockColor = when {
+                            stockRatio >= 0.5f -> Color(0xFF4CAF50) // 绿色
+                            stockRatio >= 0.1f -> Color(0xFFFF9800) // 橙色
+                            else -> Color(0xFFF44336) // 红色
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(6.dp)
+                                .background(Color.White.copy(alpha = 0.3f), RoundedCornerShape(3.dp))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(stockRatio)
+                                    .fillMaxHeight()
+                                    .background(stockColor, RoundedCornerShape(3.dp))
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(8.dp))
+                        
+                        // 剩余重量 - 放在绿色条右边
+                        Text(
+                            text = "${recipe.remainWeight}g",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 14.sp, // 增大字体
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+                
+                // 价格标签
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
                     Text(
-                        text = "剩余重量：${recipe.remainWeight}g",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
+                        text = "¥${recipe.price}",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontSize = 14.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -266,46 +422,268 @@ fun JuiceCustomizationDialog(
     onDismiss: () -> Unit
 ) {
     var withIce by remember { mutableStateOf(true) } // Default to normal ice
+    var cupSize by remember { mutableStateOf("中杯") } // Default to medium cup
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(text = "定制您的饮品: ${recipe.name}") },
-        text = {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+        ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("选择冰量:")
+                // 标题区域
+                Text(
+                    text = "定制您的${recipe.name}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "请选择您的偏好",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // 价格显示
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    val displayPrice = when(cupSize) {
+                        "大杯" -> recipe.price + 2
+                        else -> recipe.price
+                    }
+                    Text(
+                        text = "¥${displayPrice}",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 杯型选择
+                Text(
+                    text = "杯型选择",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val normalIceColor = if (withIce) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
-                    val noIceColor = if (!withIce) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
-
-                    Button(onClick = { withIce = true }, colors = normalIceColor) {
-                        Text("正常冰")
+                    // 中杯按钮
+                    Card(
+                        onClick = { cupSize = "中杯" },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (cupSize == "中杯") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (cupSize == "中杯") 8.dp else 2.dp
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "🥤",
+                                fontSize = 24.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "中杯",
+                                fontWeight = FontWeight.Bold,
+                                color = if (cupSize == "中杯") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "标准份量",
+                                fontSize = 10.sp,
+                                color = if (cupSize == "中杯") Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
                     }
-                    Button(onClick = { withIce = false }, colors = noIceColor) {
-                        Text("去冰")
+                    
+                    // 大杯按钮
+                    Card(
+                        onClick = { cupSize = "大杯" },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (cupSize == "大杯") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (cupSize == "大杯") 8.dp else 2.dp
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "🍺",
+                                fontSize = 24.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "大杯",
+                                fontWeight = FontWeight.Bold,
+                                color = if (cupSize == "大杯") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "+¥2",
+                                fontSize = 10.sp,
+                                color = if (cupSize == "大杯") Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 冰度选择
+                Text(
+                    text = "冰度选择",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // 正常冰按钮
+                    Card(
+                        onClick = { withIce = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (withIce) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (withIce) 8.dp else 2.dp
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "❄️",
+                                fontSize = 24.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "正常冰",
+                                fontWeight = FontWeight.Bold,
+                                color = if (withIce) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // 去冰按钮
+                    Card(
+                        onClick = { withIce = false },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (!withIce) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (!withIce) 8.dp else 2.dp
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "🌡️",
+                                fontSize = 24.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "去冰",
+                                fontWeight = FontWeight.Bold,
+                                color = if (!withIce) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // 操作按钮
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // 取消按钮
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text(
+                            text = "取消",
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                    
+                    // 确认按钮
+                    Button(
+                        onClick = { 
+                            // 添加调试信息
+                            Log.d("JuiceCustomizationDialog", "确认制作: 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
+                            onConfirm(cupSize, withIce) 
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text(
+                            text = "开始制作",
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onConfirm("中杯", withIce) }
-            ) {
-                Text("确认")
-            }
-        },
-        dismissButton = {
-            Button(
-                onClick = onDismiss
-            ) {
-                Text("取消")
-            }
         }
-    )
+    }
 }
 
 @Composable

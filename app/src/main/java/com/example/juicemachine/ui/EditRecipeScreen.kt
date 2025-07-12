@@ -47,13 +47,22 @@ fun EditRecipeScreen(
     onSave: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
+    val isNewRecipe = recipe.id == 0
+    val isSavable = recipe.name.isNotBlank() && recipe.water > 0 && recipe.juice > 0 && recipe.price > 0 && recipe.juiceChannel in 1..3
+
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (recipe.id == 0) "添加新配方" else "编辑配方") },
+                title = { Text(if (isNewRecipe) "添加新配方" else "编辑配方") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onSave, enabled = isSavable) {
+                        Icon(Icons.Filled.Done, contentDescription = "保存")
                     }
                 }
             )

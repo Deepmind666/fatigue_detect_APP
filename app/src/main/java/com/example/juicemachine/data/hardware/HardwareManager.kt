@@ -85,39 +85,59 @@ class HardwareManager(
         onStatusListener?.invoke("已连接")
     }
 
-    fun makeJuice(recipe: Recipe, withIce: Boolean) {
+    fun makeJuice(recipe: Recipe, cupSize: String, withIce: Boolean) {
         // 7字节：0xFF + 5字节有效数据 + 0xFE
         val command = ByteArray(7)
         command[0] = 0xFF.toByte()
-        command[1] = if (withIce) 0x02.toByte() else 0x03.toByte() // Type
         
+        // 修复协议匹配问题：
+        // 根据STM32代码，应该使用0x00作为用户制作指令
+        // 冰度信息通过其他方式传递或在配方中体现
+        command[1] = 0x00.toByte() // 用户制作指令，STM32会处理case 0x00
+
+        // 根据杯型计算实际配方量
+        val waterAmount = when (cupSize) {
+            "大杯" -> (recipe.water * 1.3).toInt() // 大杯增加30%
+            else -> recipe.water // 中杯使用原配方
+        }
+        
+        val juiceAmount = when (cupSize) {
+            "大杯" -> (recipe.juice * 1.3).toInt() // 大杯增加30%
+            else -> recipe.juice // 中杯使用原配方
+        }
+
         // 根据STM32端期望：A、B、C、D分别代表4个通道的投放量
         // 需要根据juiceChannel决定哪个通道投放果汁，其他通道为0
-        command[2] = (recipe.water and 0xFF).toByte() // materialA - 水量
-        command[3] = if (recipe.juiceChannel == 1) (recipe.juice and 0xFF).toByte() else 0x00 // materialB - 果汁通道1
-        command[4] = if (recipe.juiceChannel == 2) (recipe.juice and 0xFF).toByte() else 0x00 // materialC - 果汁通道2
-        command[5] = if (recipe.juiceChannel == 3) (recipe.juice and 0xFF).toByte() else 0x00 // materialD - 果汁通道3
+        command[2] = (waterAmount and 0xFF).toByte() // materialA - 水量
+        command[3] = if (recipe.juiceChannel == 1) (juiceAmount and 0xFF).toByte() else 0x00 // materialB - 果汁通道1
+        command[4] = if (recipe.juiceChannel == 2) (juiceAmount and 0xFF).toByte() else 0x00 // materialC - 果汁通道2
+        command[5] = if (recipe.juiceChannel == 3) (juiceAmount and 0xFF).toByte() else 0x00 // materialD - 果汁通道3
         command[6] = 0xFE.toByte()
-        
+
         // 调试信息
-        Toast.makeText(context, "配方: 水=${recipe.water}g 果汁=${recipe.juice}g 通道=${recipe.juiceChannel}", Toast.LENGTH_LONG).show()
+        val iceStatus = if(withIce) "正常冰" else "去冰"
+        val debugMessage = "制作指令: $cupSize $iceStatus (0x00), 配方: 水=${waterAmount}g 果汁=${juiceAmount}g 通道=${recipe.juiceChannel}"
         
+        Log.d("HardwareManager", debugMessage)
+        Toast.makeText(context, debugMessage, Toast.LENGTH_LONG).show()
+
         sendCommand(command)
     }
 
     // Admin commands are identified by command code 0x01
     fun sendAdminCommand(commandCode: Int) {
         // 7字节：0xFF + 5字节有效数据 + 0xFE
+        // 根据指令表：所有管理员指令都使用Type=0x01，具体功能码放在byte[2]位置
         val command = byteArrayOf(
             0xFF.toByte(),
-            0x01.toByte(), // Type
-            commandCode.toByte(), // Data1
+            0x01.toByte(), // Type: 固定为管理员功能类型
+            commandCode.toByte(), // Data1: 具体的功能码(0x00清洗, 0x01停水, 0x02测试, 0x04制作)
             0x00, // Data2
             0x00, // Data3
             0x00, // Data4
             0xFE.toByte()
         )
-        
+
         // 添加管理员指令的调试信息
         val commandName = when (commandCode) {
             0x00 -> "一键清洗"
@@ -126,11 +146,11 @@ class HardwareManager(
             0x04 -> "开始制作"
             else -> "未知指令"
         }
-        
+
         scope.launch(Dispatchers.Main) {
             Toast.makeText(context, "管理员指令: $commandName (0x${commandCode.toString(16).uppercase()})", Toast.LENGTH_LONG).show()
         }
-        
+
         sendCommand(command)
     }
 

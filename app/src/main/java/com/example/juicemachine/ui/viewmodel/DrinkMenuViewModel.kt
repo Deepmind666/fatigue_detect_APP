@@ -88,10 +88,19 @@ class DrinkMenuViewModel(
             _uiState.update { it.copy(errorMessage = "串口未连接，无法下单") }
             return
         }
-        hardwareManager.makeJuice(recipe, withIce)
-        // 下单后自动扣减剩余重量
+        
+        // 添加调试信息
+        Log.d("DrinkMenuViewModel", "确认下单: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
+        
+        hardwareManager.makeJuice(recipe, cupSize, withIce)
+        
+        // 下单后自动扣减剩余重量（根据杯型计算实际消耗）
         viewModelScope.launch {
-            val newRemain = (recipe.remainWeight - recipe.juice).coerceAtLeast(0)
+            val actualJuiceConsumption = when (cupSize) {
+                "大杯" -> (recipe.juice * 1.3).toInt()
+                else -> recipe.juice
+            }
+            val newRemain = (recipe.remainWeight - actualJuiceConsumption).coerceAtLeast(0)
             recipeRepository.updateRemainWeight(recipe.id, newRemain)
         }
         _uiState.update { it.copy(selectedRecipe = null) }
@@ -212,6 +221,39 @@ class DrinkMenuViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    // 添加恢复默认数据的函数
+    fun restoreDefaultRecipes() {
+        viewModelScope.launch {
+            // 强制插入或更新三种核心饮料
+            val coreRecipes = listOf(
+                Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1),
+                Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2),
+                Recipe(name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3)
+            )
+            
+            val existingRecipes = recipeRepository.allRecipes.first()
+            
+            coreRecipes.forEach { coreRecipe ->
+                val existing = existingRecipes.find { it.name == coreRecipe.name }
+                if (existing == null) {
+                    // 如果不存在，直接插入
+                    recipeRepository.insertRecipe(coreRecipe)
+                } else {
+                    // 如果存在，更新参数但保持库存
+                    val updatedRecipe = existing.copy(
+                        water = coreRecipe.water,
+                        juice = coreRecipe.juice,
+                        price = coreRecipe.price,
+                        juiceChannel = coreRecipe.juiceChannel
+                    )
+                    recipeRepository.updateRecipe(updatedRecipe)
+                }
+            }
+            
+            _uiState.update { it.copy(errorMessage = "默认配方已恢复") }
+        }
     }
 
     override fun onCleared() {
