@@ -1,13 +1,42 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-  <path
-      android:pathData="M54,54m-24,0a24,24 0,1 1,48 0a24,24 0,1 1,-48 0"
-      android:fillColor="#FFFFFF"/>
-  <path
-      android:pathData="M62,44l-16,0l0,12l8,8l8,-8l0,-12z M54,52l-4,-4l0,-4l8,0l0,4l-4,4z"
-      android:fillColor="#3DDC84"/>
+    
+    <!-- 橙子主体 -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M54,20C70,20 83,33 83,49C83,65 70,78 54,78C38,78 25,65 25,49C25,33 38,20 54,20Z"/>
+    
+    <!-- 橙子纹理线条 -->
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="1.5"
+        android:pathData="M54,25L54,73"/>
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="1"
+        android:pathData="M40,35Q54,30 68,35"/>
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="1"
+        android:pathData="M35,49Q54,45 73,49"/>
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="1"
+        android:pathData="M40,63Q54,68 68,63"/>
+    
+    <!-- 橙子顶部叶子 -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M54,20Q50,15 45,18Q50,22 54,20"/>
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M54,20Q58,15 63,18Q58,22 54,20"/>
+    
+    <!-- 高光效果 -->
+    <path
+        android:fillColor="#FFE0B2"
+        android:pathData="M45,30C50,28 55,30 60,32C58,35 52,37 45,35C43,33 43,31 45,30Z"/>
 </vector> 

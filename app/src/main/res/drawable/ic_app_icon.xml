@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    
+    <!-- 背景圆 -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M24,2a22,22 0,1 0,44 0a22,22 0,1 0,-44 0z"/>
+    
+    <!-- 橙子纹理 -->
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="1"
+        android:pathData="M24,8L24,40"/>
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="0.8"
+        android:pathData="M12,18Q24,15 36,18"/>
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="0.8"
+        android:pathData="M10,24Q24,22 38,24"/>
+    <path
+        android:strokeColor="#FF6F00"
+        android:strokeWidth="0.8"
+        android:pathData="M12,30Q24,33 36,30"/>
+    
+    <!-- 叶子 -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M24,8Q21,5 18,7Q21,9 24,8"/>
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M24,8Q27,5 30,7Q27,9 24,8"/>
+    
+    <!-- 高光 -->
+    <path
+        android:fillColor="#FFE0B2"
+        android:fillAlpha="0.8"
+        android:pathData="M16,13a4,3 0,1 0,8 0a4,3 0,1 0,-8 0z"/>
+</vector> 

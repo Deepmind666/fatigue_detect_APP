@@ -278,20 +278,11 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
         Box(
             modifier = Modifier.aspectRatio(0.85f) // 调整比例以更好适应图片比例
         ) {
-            // Background - 添加背景色
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.White) // 使用白色背景更好地显示图片
-            )
-            
-            // Background Image
+            // Background Image - 直接显示图片，无背景
             Image(
                 painter = painter,
                 contentDescription = recipe.name,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(4.dp), // 添加小的padding确保图片不贴边
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit, // 使用Fit确保图片完整显示
                 alpha = if (isSoldOut) 0.3f else 1.0f
             )

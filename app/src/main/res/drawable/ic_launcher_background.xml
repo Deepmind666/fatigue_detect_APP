@@ -4,7 +4,35 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-  <path
-      android:fillColor="#3DDC84"
-      android:pathData="M0,0h108v108h-108z"/>
+    
+    <!-- 渐变背景 -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor" xmlns:aapt="http://schemas.android.com/aapt">
+            <gradient 
+                android:startY="0"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0" android:color="#FFF3E0"/>
+                <item android:offset="1" android:color="#FFE0B2"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    
+    <!-- 装饰性圆点 - 使用path绘制 -->
+    <path
+        android:fillColor="#FF9800"
+        android:fillAlpha="0.3"
+        android:pathData="M20,22a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z"/>
+    <path
+        android:fillColor="#FF9800"
+        android:fillAlpha="0.2"
+        android:pathData="M88,28a2,2 0,1 0,4 0a2,2 0,1 0,-4 0z"/>
+    <path
+        android:fillColor="#FF9800"
+        android:fillAlpha="0.25"
+        android:pathData="M15,77.5a2.5,2.5 0,1 0,5 0a2.5,2.5 0,1 0,-5 0z"/>
+    <path
+        android:fillColor="#FF9800"
+        android:fillAlpha="0.3"
+        android:pathData="M90,81.5a3.5,3.5 0,1 0,7 0a3.5,3.5 0,1 0,-7 0z"/>
 </vector> 
