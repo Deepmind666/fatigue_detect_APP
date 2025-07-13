@@ -33,6 +33,7 @@
 .\objects\main.o: .\Hardware\serial2.h
 .\objects\main.o: .\System\Delay.h
 .\objects\main.o: .\Hardware\hx711.h
+.\objects\main.o: .\Hardware\Delay.h
 .\objects\main.o: .\Hardware\Motor.h
 .\objects\main.o: .\Hardware\PWM.h
 .\objects\main.o: .\Hardware\Gra_Com.h

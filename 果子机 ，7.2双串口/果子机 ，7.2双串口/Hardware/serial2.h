@@ -2,6 +2,7 @@
 #define __SERIAL2_H
 
 #include <stdio.h>
+#include "stm32f10x.h"
 
 extern uint8_t Serial2_TxPacket[5];
 extern uint8_t Serial2_RxPacket[5];

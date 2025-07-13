@@ -28,6 +28,4 @@
 .\objects\motor.o: .\Library\stm32f10x_usart.h
 .\objects\motor.o: .\Library\stm32f10x_wwdg.h
 .\objects\motor.o: .\Library\misc.h
-.\objects\motor.o: Hardware\PWM.h
-.\objects\motor.o: .\System\Delay.h
 .\objects\motor.o: Hardware\Motor.h

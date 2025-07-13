@@ -78,39 +78,26 @@ void ExecuteRecipe(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3
 {
     Serial2_Printf("Starting recipe execution...\r\n");
     
-    // 注意：这里的电机通道号(0, 1, 2, 3)需要和实际硬件连接对应
-    // 我们假设：0=水泵, 1=果汁泵1, 2=果汁泵2, 3=果汁泵3
+    // 假设：1=水泵, 2=果汁泵1, 3=果汁泵2, 4=果汁泵3
     
-    // 1. 出水
     if (water > 0) {
-        Serial2_Printf("Dispensing %dg water...\r\n", water);
-        Motor_ExtendedCtrl(0, 80); // 启动0号电机（水泵），速度80
-        BlockingGravityCompensation(water); // 等待达到目标重量
-        Motor_ExtendedCtrl(0, 0);   // 停止电机
+        Serial2_Printf("Dispensing %dg water from channel 1...\r\n", water);
+        BlockingGravityCompensation(1, water);
     }
 				
-    // 2. 出果汁通道1
     if (juice1 > 0) {
-        Serial2_Printf("Dispensing %dg juice from channel 1...\r\n", juice1);
-        Motor_ExtendedCtrl(1, 80); // 启动1号电机
-        BlockingGravityCompensation(juice1);
-        Motor_ExtendedCtrl(1, 0);
+        Serial2_Printf("Dispensing %dg juice from channel 2...\r\n", juice1);
+        BlockingGravityCompensation(2, juice1);
     }
     
-    // 3. 出果汁通道2
     if (juice2 > 0) {
-        Serial2_Printf("Dispensing %dg juice from channel 2...\r\n", juice2);
-        Motor_ExtendedCtrl(2, 80); // 启动2号电机
-        BlockingGravityCompensation(juice2);
-        Motor_ExtendedCtrl(2, 0);
+        Serial2_Printf("Dispensing %dg juice from channel 3...\r\n", juice2);
+        BlockingGravityCompensation(3, juice2);
     }
     
-    // 4. 出果汁通道3
     if (juice3 > 0) {
-        Serial2_Printf("Dispensing %dg juice from channel 3...\r\n", juice3);
-        Motor_ExtendedCtrl(3, 80); // 启动3号电机
-        BlockingGravityCompensation(juice3);
-        Motor_ExtendedCtrl(3, 0);
+        Serial2_Printf("Dispensing %dg juice from channel 4...\r\n", juice3);
+        BlockingGravityCompensation(4, juice3);
     }
     
     Serial2_Printf("Recipe execution completed!\r\n");
@@ -122,42 +109,38 @@ void ExecuteRecipe(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3
 void StartCleaning(void)
 {
     Serial2_Printf("Starting cleaning cycle...\r\n");
-    // 启动所有泵进行清洗，持续5秒
-    Motor_ExtendedCtrl(0, 100);
-    Motor_ExtendedCtrl(1, 100);
-    Motor_ExtendedCtrl(2, 100);
-    Motor_ExtendedCtrl(3, 100);
-    Delay_ms(5000); // 清洗5秒
-    StopCleaning(); // 调用停止函数
-    Serial2_Printf("Cleaning cycle completed!\r\n");
+    Motor_Control(1, 1);
+    Motor_Control(2, 1);
+    Motor_Control(3, 1);
+    Motor_Control(4, 1);
 }
 
 /**
-  * @brief  停止清洗
+  * @brief  停止所有活动（包括清洗和制作）
   */
 void StopCleaning(void)
 {
     Serial2_Printf("Stopping all motors...\r\n");
-    // 确保所有泵都停止
-    Motor_ExtendedCtrl(0, 0);
-    Motor_ExtendedCtrl(1, 0);
-    Motor_ExtendedCtrl(2, 0);
-    Motor_ExtendedCtrl(3, 0);
+    Motor_Control(1, 0);
+    Motor_Control(2, 0);
+    Motor_Control(3, 0);
+    Motor_Control(4, 0);
 }
 
 
 int main(void)
 	
 {
-    // ��ʼ��ϵͳ
+    // ʼϵͳ
     SystemInit();
-    Delay_Init();       // ��ʼ����ʱ
-    Serial_Init();      // ��ʼ������
-	  Serial2_Init();
-    Serial2_Printf("2.\r\n");
-    Serial2_Printf("2.\r\n");
-	  Serial_Printf("1\r\n");
-    Serial_Printf("1\r\n");
+    Delay_Init();       // ʼʱ
+    Serial_Init();      // ʼ1 ()
+	Serial2_Init();     // ʼ2 (־)
+	HX711_Init();       // ʼ HX711
+	Motor_Init();       // ʼ IO
+
+    Serial2_Printf("System Initialized.\r\n");
+    Serial_Printf("System Initialized.\r\n");
 
     while(1)
     {

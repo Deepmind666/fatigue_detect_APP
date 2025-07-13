@@ -29,7 +29,7 @@
 .\objects\hx711.o: .\Library\stm32f10x_usart.h
 .\objects\hx711.o: .\Library\stm32f10x_wwdg.h
 .\objects\hx711.o: .\Library\misc.h
-.\objects\hx711.o: .\System\Delay.h
+.\objects\hx711.o: Hardware\Delay.h
 .\objects\hx711.o: Hardware\Serial.h
 .\objects\hx711.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
 .\objects\hx711.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stddef.h

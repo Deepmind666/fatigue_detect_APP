@@ -1,53 +1,42 @@
-#include "hx711.h"       // �������ش�����HX711����������
-#include "PWM.h" // ����������ƺ���
-#include "Delay.h"      // ����ʱ����صĺ�������HAL_Delay
-#include "serial.h"      // ���������������
+#include "hx711.h"
+#include "Motor.h"
+#include "Delay.h"
+#include "serial2.h"
+#include "Gra_Com.h"
 
-// ����ʽ������������
-// ������targetWeight - Ŀ����������λ���ˣ�
-void BlockingGravityCompensation(uint32_t targetWeight)
+void BlockingGravityCompensation(uint8_t channel, uint32_t targetWeight)
 {
     float currentWeight = 0;
     float gap = targetWeight;
 
-    // 1. 开始前先去皮，清零当前重量
     HX711_Tare();
-    Serial2_Printf("Tare before compensation.\r\n");
+    Serial2_Printf("Channel %d: Tare before compensation.\r\n", channel);
 
-    Serial2_Printf("Starting blocking compensation for %d g\r\n", targetWeight);
+    Serial2_Printf("Channel %d: Starting compensation for %d g\r\n", channel, targetWeight);
     
-    // 循环开始
+    Motor_Control(channel, 1);
+    Delay_ms(200);
+
+    uint32_t last_print_time = 0;
+
     while (1) {
-       
-        // 2. 实时获取当前重量（相对于去皮后的0点）
         currentWeight = HX711_GetWeight(3);
-        
         gap = targetWeight - currentWeight;
         
-        Serial2_Printf("Current: %.2fg, Target: %dg, Gap: %.2fg\r\n", currentWeight, targetWeight, gap);
-        
-        // 3. 检查是否达到或超过目标
-        if (gap <= 1.0f) { // 允许1g的误差
-            PWM_SetCompare3(0); // 停止电机
-            Serial2_Printf("Compensation completed (final gap: %.2fg)\r\n", gap);
-            return; // 成功，退出函数
+        uint32_t current_time = Delay_GetSysTicks();
+        if (current_time - last_print_time > 500) { // 每500ms打印一次
+            Serial2_Printf("Channel %d -> Current: %.2fg, Target: %dg, Gap: %.2fg\r\n", channel, currentWeight, targetWeight, gap);
+            last_print_time = current_time;
         }
         
-        // 4. 根据差距调整速度 (PID简易控制)
-        if (gap < 10.0f) {
-            PWM_SetCompare3(30); // 低速
-        }
-        else if (gap < 40.0f) {
-            PWM_SetCompare3(45); // 中速
-        }
-        else if (gap < 80.0f) {
-            PWM_SetCompare3(60); // 较高速
-        }
-        else {
-            PWM_SetCompare3(80); // 高速
+        if (gap <= 1.0f) {
+            Motor_Control(channel, 0);
+            Serial2_Printf("Channel %d -> Compensation completed (final gap: %.2fg)\r\n", channel, gap);
+            Delay_ms(1000);
+            return;
         }
         
-        Delay_ms(50); // 每次循环延迟50ms，防止过于频繁的读取和控制
+        Delay_ms(50);
     }
 }
 
