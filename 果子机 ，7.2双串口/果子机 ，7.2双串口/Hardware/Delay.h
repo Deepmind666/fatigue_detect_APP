@@ -7,6 +7,5 @@ void Delay_Init(void);
 void Delay_ms(uint32_t ms);
 void Delay_us(uint32_t us);
 uint32_t Delay_GetSysTicks(void);
-void Delay_ClearSysTicks(void);
 
-#endif 
+#endif

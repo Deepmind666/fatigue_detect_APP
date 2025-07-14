@@ -12,6 +12,30 @@ void ExecuteRecipe(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3
 void StartCleaning(void);
 void StopCleaning(void);
 
+// IWDG 初始化函数
+void IWDG_Init(void)
+{
+	// 1. 使能LSI时钟
+	RCC_LSICmd(ENABLE);
+	// 2. 等待LSI稳定
+	while (RCC_GetFlagStatus(RCC_FLAG_LSIRDY) == RESET);
+	
+	// 3. 解除对IWDG寄存器的写保护
+	IWDG_WriteAccessCmd(IWDG_WriteAccess_Enable);
+	
+	// 4. 设置IWDG预分频因子, LSI频率40kHz, 40k/256 = 156.25Hz, 周期约为6.4ms
+	IWDG_SetPrescaler(IWDG_Prescaler_256);
+	
+	// 5. 设置IWDG重装载值, 超时时间 = 6.4ms * 4095 = 26208ms (约26秒)
+	IWDG_SetReload(4095);
+	
+	// 6. 重新加载IWDG计数器
+	IWDG_ReloadCounter();
+	
+	// 7. 使能IWDG
+	IWDG_Enable();
+}
+
 
 // 完整指令处理函数
 void ProcessCommand(void)
@@ -30,8 +54,9 @@ void ProcessCommand(void)
             case 0x01: // 正常冰
             case 0x02: // 去冰
             {
-                Serial2_Printf("%02X Recipe received: Water=%dg, Ch1=%dg, Ch2=%dg, Ch3=%dg\r\n", 
-                             cmd_type, materialA, materialB, materialC, materialD);
+                const char* ice_str = (cmd_type == 0x01) ? "Normal Ice" : "No Ice";
+                Serial2_Printf("Recipe (%s): Water=%dg, Ch1=%dg, Ch2=%dg, Ch3=%dg\r\n", 
+                             ice_str, materialA, materialB, materialC, materialD);
                 ExecuteRecipe(materialA, materialB, materialC, materialD);
                 break;
             }
@@ -60,6 +85,8 @@ void ProcessCommand(void)
                 Serial2_Printf("Unknown command type: 0x%02X\r\n", cmd_type);
                 break;
         }
+				
+		Serial_RxFlag = 0; // 清除指令标志，准备接收下一条
     }
 }
 
@@ -76,31 +103,34 @@ void ProcessCommand(void)
   */
 void ExecuteRecipe(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3)
 {
-    Serial2_Printf("Starting recipe execution...\r\n");
-    
     // 假设：1=水泵, 2=果汁泵1, 3=果汁泵2, 4=果汁泵3
     
+    HX711_Tare();     // 在配方开始前执行去皮
+    Delay_ms(100);    // 等待去皮稳定
+
     if (water > 0) {
-        Serial2_Printf("Dispensing %dg water from channel 1...\r\n", water);
         BlockingGravityCompensation(1, water);
     }
 				
     if (juice1 > 0) {
-        Serial2_Printf("Dispensing %dg juice from channel 2...\r\n", juice1);
-        BlockingGravityCompensation(2, juice1);
+        BlockingGravityCompensation(2, juice1); // 修正通道号
     }
     
     if (juice2 > 0) {
-        Serial2_Printf("Dispensing %dg juice from channel 3...\r\n", juice2);
-        BlockingGravityCompensation(3, juice2);
+        BlockingGravityCompensation(3, juice2); // 修正通道号
     }
     
     if (juice3 > 0) {
-        Serial2_Printf("Dispensing %dg juice from channel 4...\r\n", juice3);
-        BlockingGravityCompensation(4, juice3);
+        BlockingGravityCompensation(4, juice3); // 修正通道号
     }
     
-    Serial2_Printf("Recipe execution completed!\r\n");
+    // 发送任务完成回执
+    Serial_TxPacket[0] = 0xAA; // 任务完成指令
+    Serial_TxPacket[1] = 0x01; // 1代表成功
+    Serial_TxPacket[2] = 0;
+    Serial_TxPacket[3] = 0;
+    Serial_TxPacket[4] = 0;
+    Serial_SendPacket();
 }
 
 /**
@@ -113,6 +143,14 @@ void StartCleaning(void)
     Motor_Control(2, 1);
     Motor_Control(3, 1);
     Motor_Control(4, 1);
+
+    // 发送任务完成回执
+    Serial_TxPacket[0] = 0xAA;
+    Serial_TxPacket[1] = 0x01;
+    Serial_TxPacket[2] = 0;
+    Serial_TxPacket[3] = 0;
+    Serial_TxPacket[4] = 0;
+    Serial_SendPacket();
 }
 
 /**
@@ -125,6 +163,14 @@ void StopCleaning(void)
     Motor_Control(2, 0);
     Motor_Control(3, 0);
     Motor_Control(4, 0);
+
+    // 发送任务完成回执
+    Serial_TxPacket[0] = 0xAA;
+    Serial_TxPacket[1] = 0x01;
+    Serial_TxPacket[2] = 0;
+    Serial_TxPacket[3] = 0;
+    Serial_TxPacket[4] = 0;
+    Serial_SendPacket();
 }
 
 
@@ -138,13 +184,14 @@ int main(void)
 	Serial2_Init();     // ʼ2 (־)
 	HX711_Init();       // ʼ HX711
 	Motor_Init();       // ʼ IO
+	IWDG_Init();        // 初始化独立看门狗
 
     Serial2_Printf("System Initialized.\r\n");
     Serial_Printf("System Initialized.\r\n");
 
     while(1)
     {
-        
+        IWDG_ReloadCounter(); // 在主循环中喂狗
         ProcessCommand();
 			
 

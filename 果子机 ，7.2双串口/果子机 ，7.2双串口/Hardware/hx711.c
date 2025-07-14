@@ -1,64 +1,66 @@
 #include "hx711.h"
+#include "stm32f10x.h" // æ·»åŠ è¿™è¡Œæ¥èŽ·å– IWDG_ReloadCounter çš„å®šä¹‰
 #include "stm32f10x_flash.h"
 #include "stm32f10x_rcc.h"
 #include "Serial.h"  
 #include "misc.h"
-#include <stddef.h>  // °üº¬ size_t ÀàÐÍ¶¨Òå
+#include <stddef.h>  // ï¿½ï¿½ï¿½ï¿½ size_t ï¿½ï¿½ï¿½Í¶ï¿½ï¿½ï¿½
 #include <math.h>
+#include <float.h>   // For FLT_MAX
 
 
 
-// È«¾Ö²ÎÊý - ´æ´¢Ð£×¼ÏµÊýºÍµ±Ç°ÔöÒæ×´Ì¬
-static HX711_Params hx711_params = {0};           // ³õÊ¼»¯ÎªÁãÖµ
-static uint8_t current_gain = CHANNEL_B_GAIN_32; // Ä¬ÈÏÊ¹ÓÃÍ¨µÀBÔöÒæ32
+// È«Ö² - æ´¢Ð£×¼Ïµï¿½ï¿½ï¿½Íµï¿½Ç°ï¿½ï¿½ï¿½ï¿½×´Ì¬
+static HX711_Params hx711_params = {0};           // ï¿½ï¿½Ê¼ï¿½ï¿½Îªï¿½ï¿½Öµ
+static uint8_t current_gain = CHANNEL_B_GAIN_32; // Ä¬ï¿½ï¿½Ê¹ï¿½ï¿½Í¨ï¿½ï¿½Bï¿½ï¿½ï¿½ï¿½32
 
-// ¼ÆËãCRC32Ð£ÑéÖµ
+// ï¿½ï¿½ï¿½ï¿½CRC32Ð£ï¿½ï¿½Öµ
 static uint32_t calc_crc32(const uint8_t *data, size_t len) {
-    uint32_t crc = 0xFFFFFFFF;  // CRC³õÊ¼Öµ
+    uint32_t crc = 0xFFFFFFFF;  // CRCï¿½ï¿½Ê¼Öµ
     
-    // ±éÀúÃ¿¸ö×Ö½Ú
+    // ï¿½ï¿½ï¿½ï¿½Ã¿ï¿½ï¿½ï¿½Ö½ï¿½
     for(size_t i = 0; i < len; i++) {
-        crc ^= data[i];  // Óëµ±Ç°×Ö½ÚÒì»ò
+        crc ^= data[i];  // ï¿½ëµ±Ç°ï¿½Ö½ï¿½ï¿½ï¿½ï¿½
         
-        // ´¦ÀíÃ¿¸ö×Ö½ÚµÄ8Î»
+        // ï¿½ï¿½ï¿½ï¿½Ã¿ï¿½ï¿½ï¿½Ö½Úµï¿½8Î»
         for(int j = 0; j < 8; j++) {
-            // ÓÒÒÆ1Î»²¢Óë¶àÏîÊ½Òì»ò£¨°´Î»Ìõ¼þÑ¡Ôñ£©
+            // ï¿½ï¿½ï¿½ï¿½1Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ò£¨°ï¿½Î»ï¿½ï¿½ï¿½ï¿½Ñ¡ï¿½ï¿½
             crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
         }
     }
-    return ~crc;  // È¡·´µÃµ½×îÖÕCRCÖµ
+    return ~crc;  // È¡ï¿½ï¿½ï¿½Ãµï¿½ï¿½ï¿½ï¿½ï¿½CRCÖµ
 }
 
 
-// HX711³õÊ¼»¯º¯Êý
+// HX711ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void HX711_Init(void) {
-    GPIO_InitTypeDef GPIO_InitStruct;  // GPIOÅäÖÃ½á¹¹Ìå
+    GPIO_InitTypeDef GPIO_InitStruct;  // GPIOï¿½ï¿½ï¿½Ã½á¹¹ï¿½ï¿½
     
-    // ÆôÓÃGPIOBÊ±ÖÓ£¨ÐÞ¸ÄÎªÊµ¼ÊÊ¹ÓÃµÄ¶Ë¿Ú£©
+    // ï¿½ï¿½ï¿½ï¿½GPIOBÊ±ï¿½Ó£ï¿½ï¿½Þ¸ï¿½ÎªÊµï¿½ï¿½Ê¹ï¿½ÃµÄ¶Ë¿Ú£ï¿½
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
     
-    // ÅäÖÃSCKÒý½ÅÎªÍÆÍìÊä³ö
-    GPIO_InitStruct.GPIO_Pin = HX711_SCK_PIN;      // SCKÒý½Å
-    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_Out_PP;  // ÍÆÍìÊä³öÄ£Ê½
-    GPIO_InitStruct.GPIO_Speed = GPIO_Speed_50MHz; // ¸ßËÙÊä³ö
-    GPIO_Init(HX711_SCK_PORT, &GPIO_InitStruct);   // Ó¦ÓÃÅäÖÃ
+    // ï¿½ï¿½ï¿½ï¿½SCKï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    GPIO_InitStruct.GPIO_Pin = HX711_SCK_PIN;      // SCKï¿½ï¿½ï¿½ï¿½
+    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_Out_PP;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä£Ê½
+    GPIO_InitStruct.GPIO_Speed = GPIO_Speed_50MHz; // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    GPIO_Init(HX711_SCK_PORT, &GPIO_InitStruct);   // Ó¦ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     
-    // ÅäÖÃDOUTÒý½ÅÎª¸¡¿ÕÊäÈë
-    GPIO_InitStruct.GPIO_Pin = HX711_DOUT_PIN;     // DOUTÒý½Å
-    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IPU;//GPIO_Mode_IN_FLOATING; // ¸¡¿ÕÊäÈëÄ£Ê½//11111111²»Ó¦¸ÃÊÇÉÏÀ­ÊäÈëÂð
-    GPIO_Init(HX711_DOUT_PORT, &GPIO_InitStruct);  // Ó¦ÓÃÅäÖÃ
+    // ï¿½ï¿½ï¿½ï¿½DOUTï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    GPIO_InitStruct.GPIO_Pin = HX711_DOUT_PIN;     // DOUTï¿½ï¿½ï¿½ï¿½
+    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IPU;//GPIO_Mode_IN_FLOATING; // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä£Ê½//11111111ï¿½ï¿½Ó¦ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    GPIO_Init(HX711_DOUT_PORT, &GPIO_InitStruct);  // Ó¦ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     
-    // ³õÊ¼»¯SCKÒý½ÅÎª¸ßµçÆ½£¨HX711¿ÕÏÐ×´Ì¬£©
-    GPIO_ResetBits(HX711_SCK_PORT, HX711_SCK_PIN);//222222222¿ÕÏÐ×´Ì¬ÊÇ²»ÊÇÓ¦¸ÃÊÇµÍµçÆ½£¬Ê¹ÄÜ²ÅÓ¦¸ÃÊÇ¸ßµçÆ½£¬¸ßµçÆ½ÓÐÐ§
+    // ï¿½ï¿½Ê¼ï¿½ï¿½SCKï¿½ï¿½ï¿½ï¿½Îªï¿½ßµï¿½Æ½ï¿½ï¿½HX711ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½
+    GPIO_ResetBits(HX711_SCK_PORT, HX711_SCK_PIN);//222222222ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½Ç²ï¿½ï¿½ï¿½Ó¦ï¿½ï¿½ï¿½ÇµÍµï¿½Æ½ï¿½ï¿½Ê¹ï¿½Ü²ï¿½Ó¦ï¿½ï¿½ï¿½Ç¸ßµï¿½Æ½ï¿½ï¿½ï¿½ßµï¿½Æ½ï¿½ï¿½Ð§
     
-    // Ìí¼Ó10msÑÓÊ±È·±£HX711ÉÏµçÎÈ¶¨
+    // ï¿½ï¿½ï¿½ï¿½10msï¿½ï¿½Ê±È·ï¿½ï¿½HX711ï¿½Ïµï¿½ï¿½È¶ï¿½
     Delay_ms(10);
     
-    // ´ÓFlash¼ÓÔØÐ£×¼²ÎÊý
+    // ï¿½ï¿½Flashï¿½ï¿½ï¿½ï¿½Ð£×¼ï¿½ï¿½ï¿½ï¿½
     HX711_LoadParams();
 
     
-    // Èç¹ûÃ»ÓÐÓÐÐ§²ÎÊý£¬Ê¹ÓÃÄ¬ÈÏÔöÒæ
+    // ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½Ð§ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     if(hx711_params.crc == 0) {
         hx711_params.current_gain = CHANNEL_B_GAIN_32;
 	}
@@ -69,12 +71,12 @@ void HX711_SetGain(void) {
     if(current_gain != CHANNEL_A_GAIN_128 && 
        current_gain != CHANNEL_A_GAIN_64 && 
        current_gain != CHANNEL_B_GAIN_32) {
-        return; // ÎÞÐ§ÔöÒæÖµ
+        return; // ï¿½ï¿½Ð§ï¿½ï¿½ï¿½ï¿½Öµ
     }
 	   hx711_params.current_gain = current_gain;
     
-    // Ó¦ÓÃÐÂÔöÒæÇ°½øÐÐÎÈ¶¨´¦Àí (¿ÉÑ¡)
-    // ¶ªÆúÇ°4´Î¶ÁÊýÒÔÈ·±£ÔöÒæÎÈ¶¨
+    // Ó¦ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½ï¿½È¶ï¿½ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½Ñ¡)
+    // ï¿½ï¿½ï¿½ï¿½Ç°4ï¿½Î¶ï¿½ï¿½ï¿½ï¿½ï¿½È·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¶ï¿½
     for(int i = 0; i < 4; i++) {
         HX711_ReadSingle();
     }
@@ -82,14 +84,14 @@ void HX711_SetGain(void) {
 
 
 
-// »ñÈ¡Æ«ÒÆÖµ
+// ï¿½ï¿½È¡Æ«ï¿½ï¿½Öµ
 float HX711_GetOffset(void) {
 	
     return hx711_params.offset;
 }
 
 
-// »ñÈ¡Ð£×¼ÏµÊý
+// ï¿½ï¿½È¡Ð£×¼Ïµï¿½ï¿½
 float HX711_GetScale(void) {
 	
     return hx711_params.scale;
@@ -102,39 +104,40 @@ int32_t HX711_ReadSingle(void) {
     uint32_t timeout = 100000;
     uint32_t raw_data = 0;
     
-    // È·±£Ê±ÖÓÏßÎªµÍ£¨×¼±¸×´Ì¬£©
+    // È·ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½Îªï¿½Í£ï¿½×¼ï¿½ï¿½×´Ì¬ï¿½ï¿½
     GPIO_ResetBits(HX711_SCK_PORT, HX711_SCK_PIN);
     
-    // µÈ´ýÊý¾Ý¾ÍÐ÷£¨´ø³¬Ê±±£»¤£©
+    // ï¿½È´ï¿½ï¿½ï¿½ï¿½Ý¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     while (GPIO_ReadInputDataBit(HX711_DOUT_PORT, HX711_DOUT_PIN)) {
+		IWDG_ReloadCounter();
         if(timeout-- == 0) {
             printf("Error: HX711 data timeout!\n");
-            return 0x7FFFFFFF; // ÌØÊâµÄ´íÎóÖµ
+            return 0x7FFFFFFF; // Ä´Öµ
         }
         Delay_us(1);
     }
     
-    // Èç¹û³¬Ê±·µ»ØºóÌø¹ý¶ÁÈ¡
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½Øºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¡
     if(timeout == 0) return 0x7FFFFFFF;
     
-    // ¶ÁÈ¡24Î»Êý¾Ý
+    // ï¿½ï¿½È¡24Î»ï¿½ï¿½ï¿½ï¿½
     for(int i = 0; i < 24; i++) {
-        GPIO_SetBits(HX711_SCK_PORT, HX711_SCK_PIN);  // ÉÏÉýÑØ
+        GPIO_SetBits(HX711_SCK_PORT, HX711_SCK_PIN);  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         Delay_us(1);
         
         raw_data <<= 1;
         if(GPIO_ReadInputDataBit(HX711_DOUT_PORT, HX711_DOUT_PIN)) {
-            raw_data |= 0x01;  // Ê¹ÓÃÎ»²Ù×÷´úÌæ¼Ó·¨
+            raw_data |= 0x01;  // Ê¹ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó·ï¿½
         }
         
-        GPIO_ResetBits(HX711_SCK_PORT, HX711_SCK_PIN);  // ÏÂ½µÑØ
+        GPIO_ResetBits(HX711_SCK_PORT, HX711_SCK_PIN);  // ï¿½Â½ï¿½ï¿½ï¿½
         Delay_us(1);
     }
     
-    // ÉèÖÃÔöÒæ
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     switch(hx711_params.current_gain) {
         case CHANNEL_A_GAIN_128:
-            // ·¢ËÍ1¸öÂö³å
+            // ï¿½ï¿½ï¿½ï¿½1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             GPIO_SetBits(HX711_SCK_PORT, HX711_SCK_PIN);
             Delay_us(1);
             GPIO_ResetBits(HX711_SCK_PORT, HX711_SCK_PIN);
@@ -142,7 +145,7 @@ int32_t HX711_ReadSingle(void) {
             break;
             
         case CHANNEL_A_GAIN_64:
-            // ·¢ËÍ2¸öÂö³å
+            // ï¿½ï¿½ï¿½ï¿½2ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             for(int i=0; i<2; i++) {
                 GPIO_SetBits(HX711_SCK_PORT, HX711_SCK_PIN);
                 Delay_us(1);
@@ -152,7 +155,7 @@ int32_t HX711_ReadSingle(void) {
             break;
             
         case CHANNEL_B_GAIN_32:
-            // ·¢ËÍ3¸öÂö³å
+            // ï¿½ï¿½ï¿½ï¿½3ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             for(int i=0; i<3; i++) {
                 GPIO_SetBits(HX711_SCK_PORT, HX711_SCK_PIN);
                 Delay_us(1);
@@ -162,57 +165,59 @@ int32_t HX711_ReadSingle(void) {
             break;
     }
     
-    // ×ª»»Êý¾ÝÎªÓÐ·ûºÅ32Î»ÕûÊý
-    // 24Î»Êý¾Ý´æ´¢ÔÚ32Î»ÕûÊýµÄµÍ24Î»
-    if(raw_data & 0x800000) { // Èç¹û×î¸ßÎ»ÊÇ1£¬ÔòÎª¸ºÊý
-        raw_data |= 0xFF000000; // ·ûºÅÀ©Õ¹
+    // ×ªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½Ð·ï¿½ï¿½ï¿½32Î»ï¿½ï¿½ï¿½ï¿½
+    // 24Î»ï¿½ï¿½ï¿½Ý´æ´¢ï¿½ï¿½32Î»ï¿½ï¿½ï¿½ï¿½ï¿½Äµï¿½24Î»
+    if(raw_data & 0x800000) { // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½1ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½
+        raw_data |= 0xFF000000; // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Õ¹
     }
     
     return (int32_t)raw_data;
 }
 
-// ÐÞ¸Ä7: »ñÈ¡µ±Ç°ÔöÒæµÄº¯Êý
+// ï¿½Þ¸ï¿½7: ï¿½ï¿½È¡ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½Äºï¿½ï¿½ï¿½
 uint8_t HX711_GetGain(void) {
 	 HX711_SetGain();
     return hx711_params.current_gain;
 }
 
-// È¥Æ¤º¯Êý£¨ÉèÖÃµ±Ç°ÎªÁãµã£©
+// È¥Æ¤ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ãµï¿½Ç°Îªï¿½ï¿½ã£©
 void HX711_Tare(void) {
-    int32_t sum = 0;              // ´æ´¢²ÉÑùÖµ×ÜºÍ
-    const uint8_t samples = 10;   // ²ÉÑù´ÎÊý£¨10´ÎÆ½¾ù£©
+    int32_t sum = 0;              // ï¿½æ´¢ï¿½ï¿½ï¿½ï¿½Öµï¿½Üºï¿½
+    const uint8_t samples = 10;   // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½10ï¿½ï¿½Æ½ï¿½ï¿½ï¿½ï¿½
     
-    // ÏÈµÈ´ý50msÈ·±£´«¸ÐÆ÷ÎÈ¶¨
+    // ï¿½ÈµÈ´ï¿½50msÈ·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¶ï¿½
     Delay_ms(50);
     
-    // ²É¼¯¶à´Î¶ÁÊýÇóÆ½¾ù
+    // ï¿½É¼ï¿½ï¿½ï¿½Î¶ï¿½ï¿½ï¿½ï¿½ï¿½Æ½ï¿½ï¿½
     for (int i = 0; i < samples; i++) {
-        sum += HX711_ReadSingle();  // ÀÛ¼Óµ¥´Î¶ÁÊý
+		IWDG_ReloadCounter();
+        sum += HX711_ReadSingle();  // Û¼ÓµÎ¶
         
-        // Ã¿´Î¶ÁÊýºóÌí¼Ó1msÑÓÊ±
+        // Ã¿Î¶1msÊ±
         Delay_ms(1);
     }
     
-    // ¼ÆËãÆ½¾ùÖµ×÷ÎªÐÂµÄÆ«ÒÆÖµ
+    // ï¿½ï¿½ï¿½ï¿½Æ½ï¿½ï¿½Öµï¿½ï¿½Îªï¿½Âµï¿½Æ«ï¿½ï¿½Öµ
     hx711_params.offset = sum / (float)samples;
     
-    // ×Ô¶¯±£´æ²ÎÊýµ½Flash£¨¶Ïµç±£³Ö£©
+    // ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Flashï¿½ï¿½ï¿½Ïµç±£ï¿½Ö£ï¿½
     HX711_SaveParams();
 }
 
-// ÕýÈ·ÊµÏÖÐ£×¼º¯Êý
+// ï¿½ï¿½È·Êµï¿½ï¿½Ð£×¼ï¿½ï¿½ï¿½ï¿½
 void HX711_UpdateCalibration(float known_weight) {
     if (known_weight < 0.001f) return;
     
-    Delay_ms(100); // ¸ü³¤µÄÎÈ¶¨Ê±¼ä
+    Delay_ms(100); // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¶ï¿½Ê±ï¿½ï¿½
     
-    // Ö±½Ó»ñÈ¡Ô­Ê¼ÖµÆ½¾ùÖµ£¬²»¾­¹ýÏÖÓÐÏµÊý×ª»»
+    // Ö±ï¿½Ó»ï¿½È¡Ô­Ê¼ÖµÆ½ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ïµï¿½ï¿½×ªï¿½ï¿½
     int32_t raw_sum = 0;
     const uint8_t samples = 15;
     
     for(int i = 0; i < samples; i++) {
+		IWDG_ReloadCounter();
         int32_t val = HX711_ReadSingle();
-        if(val != 0x80000000) { // ºöÂÔ´íÎó¶ÁÊý
+        if(val != 0x80000000) { // Ô´
             raw_sum += val;
         }
         Delay_ms(1);
@@ -220,101 +225,86 @@ void HX711_UpdateCalibration(float known_weight) {
     
     float raw_avg = raw_sum / (float)samples;
     
-    // ¼ÆËã¹«Ê½£ºÐ£×¼ÏµÊý = (µ±Ç°Ô­Ê¼Öµ - Æ«ÒÆÖµ) / ÒÑÖªÖØÁ¿
+    // ï¿½ï¿½ï¿½ã¹«Ê½ï¿½ï¿½Ð£×¼Ïµï¿½ï¿½ = (ï¿½ï¿½Ç°Ô­Ê¼Öµ - Æ«ï¿½ï¿½Öµ) / ï¿½ï¿½Öªï¿½ï¿½ï¿½ï¿½
     hx711_params.scale = (raw_avg - hx711_params.offset) / known_weight;
     
     HX711_SaveParams();
 }
-//// ¸üÐÂÐ£×¼ÏµÊýº¯Êý
-//// ²ÎÊý£ºknown_weight - ÒÑÖªÖØÁ¿Öµ£¨µ¥Î»£º¿Ë/Ç§¿Ë£©
+//// ï¿½ï¿½ï¿½ï¿½Ð£×¼Ïµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+//// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½known_weight - ï¿½ï¿½Öªï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½/Ç§ï¿½Ë£ï¿½
 //void HX711_UpdateCalibration(float known_weight) {
-//    // ºöÂÔÎÞÐ§ÖØÁ¿Öµ£¨Ð¡ÓÚ1ºÁ¿Ë£©
+//    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð§ï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½Ð¡ï¿½ï¿½1ï¿½ï¿½ï¿½Ë£ï¿½
 //    if (known_weight < 0.001f) return;  
 //    
-//    // µÈ´ý50msÈ·±£´«¸ÐÆ÷ÎÈ¶¨
+//    // ï¿½È´ï¿½50msÈ·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¶ï¿½
 //    Delay_ms(50);
 //    
-//    // »ñÈ¡µ±Ç°ÖØÁ¿£¨10´ÎÆ½¾ù£© - ÓÐ¸ºÔØÊ±µÄÔ­Ê¼Öµ
+//    // ï¿½ï¿½È¡ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½10ï¿½ï¿½Æ½ï¿½ï¿½ï¿½ï¿½ - ï¿½Ð¸ï¿½ï¿½ï¿½Ê±ï¿½ï¿½Ô­Ê¼Öµ
 //    float current = HX711_GetWeight(10);
 //    
-//    // ¼ÆËãÐÂµÄÐ£×¼ÏµÊý£¨½öµ±ÓÐ¸ºÔØÊ±£©
+//    // ï¿½ï¿½ï¿½ï¿½ï¿½Âµï¿½Ð£×¼Ïµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¸ï¿½ï¿½ï¿½Ê±ï¿½ï¿½
 //    if (current != 0) {
-//        // ¹«Ê½£ºÐ£×¼ÏµÊý = (ÓÐ¸ºÔØÊ±µÄÔ­Ê¼Öµ - Æ«ÒÆÖµ) / ÒÑÖªÖØÁ¿
+//        // ï¿½ï¿½Ê½ï¿½ï¿½Ð£×¼Ïµï¿½ï¿½ = (ï¿½Ð¸ï¿½ï¿½ï¿½Ê±ï¿½ï¿½Ô­Ê¼Öµ - Æ«ï¿½ï¿½Öµ) / ï¿½ï¿½Öªï¿½ï¿½ï¿½ï¿½
 //        hx711_params.scale = (current - hx711_params.offset) / known_weight;
 //    }
 //    
-//    // ×Ô¶¯±£´æ²ÎÊýµ½Flash
+//    // ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Flash
 //    HX711_SaveParams();
 //}
 
-// »ñÈ¡ÖØÁ¿º¯Êý£¨¶à´ÎÆ½¾ù£©
-// ²ÎÊý£ºsample_times - ²ÉÑù´ÎÊý£¨1-64´Î£©
-// ·µ»ØÖµ£ºÆ½¾ùÖØÁ¿Öµ
+// ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ½ï¿½ï¿½ï¿½ï¿½
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½sample_times - ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½1-64ï¿½Î£ï¿½
+// ï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½Æ½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Öµ
 float HX711_GetWeight(uint8_t sample_times) {
 	if(fabsf(hx711_params.scale) < 0.1f) {
         Serial_Printf("! Error: Invalid calibration parameters\r\n");
         return 0.0f;
     }
-    int32_t sum = 0;
-    int valid_samples = 0;
-    
-    // ÏÞÖÆ²ÉÑù´ÎÊýÔÚºÏÀí·¶Î§
     if(sample_times < 1) sample_times = 1;
-    if(sample_times > 64) sample_times = 64;
     
-    // ½øÐÐÖ¸¶¨´ÎÊýµÄ²ÉÑù
-    for (int i = 0; i < sample_times; i++) {
-        int32_t val = HX711_ReadSingle();
+    int64_t sum = 0;
+    uint8_t valid_samples = 0;
+    
+    for (uint8_t i = 0; i < sample_times; i++) {
+        IWDG_ReloadCounter(); // åœ¨å¾ªçŽ¯ä¸­å–‚ç‹—
+        int32_t raw_data = HX711_ReadSingle();
         
-        // Ö»ºöÂÔÕæÕýµÄ´íÎóÖµ£¬ÔÊÐí¸ºÖµ
-        if (val == 0x7FFFFFFF) {
-            printf("! Warning: Invalid reading skipped\n");
-            continue;  
+        // æ£€æŸ¥æ˜¯å¦è¶…æ—¶
+        if (raw_data != 0x7FFFFFFF) {
+            sum += raw_data;
+            valid_samples++;
         }
-        
-        sum += val;
-        valid_samples++;
-        Delay_ms(2);  // Ôö¼ÓÑÓÊ±ÒÔ¼õÉÙÔëÉù¸ÉÈÅ
     }
     
-    // Ã»ÓÐÓÐÐ§¶ÁÊýÊ±·µ»Ø0
-    if(valid_samples == 0) {
-        printf("! Error: No valid readings\n");
-        return 0.0f;
+    // å¦‚æžœæ‰€æœ‰é‡‡æ ·éƒ½å¤±è´¥ï¼ˆè¶…æ—¶ï¼‰ï¼Œåˆ™è¿”å›žé”™è¯¯ä»£ç 
+    if (valid_samples == 0) {
+        return FLT_MAX;
     }
     
-    // ¼ÆËãÔ­Ê¼ÖµµÄÆ½¾ùÖµ
-    float avg = sum / (float)valid_samples;
-    
-    // ×ª»»ÎªÊµ¼ÊÖØÁ¿
-    float weight = (avg - hx711_params.offset) / 224;
-    
-    // Îª¸ºÖµÊ±·µ»Ø0
-    if(weight < 0) weight = 0.0f;
-    
-    return weight;
+    float avg_raw = (float)sum / valid_samples;
+    return (avg_raw - hx711_params.offset) / hx711_params.scale;
 }
 
 
 
 
-//Ô­±¾µÄ´úÂë
-// ´ÓFlash¼ÓÔØ²ÎÊýº¯Êý
+//Ô­Ä´
+// FlashØ²
 void HX711_LoadParams(void) {
-    // »ñÈ¡FlashÖÐ²ÎÊý´æ´¢µØÖ·
+    // È¡FlashÐ²æ´¢Ö·
     HX711_Params *flash_params = (HX711_Params*)HX711_PARAM_FLASH_ADDR;
     
-    // ¼ÆËã²ÎÊýµÄCRC32Öµ£¨²»°üÀ¨crc×Ö¶Î×ÔÉí£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½CRC32Öµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½crcï¿½Ö¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     uint32_t crc_calc = calc_crc32((uint8_t*)flash_params, sizeof(HX711_Params)-4);
     
-    // ¹Ø¼üÐÞ¸´£ºÌí¼Ó¸üÑÏ¸ñµÄÊý¾ÝÓÐÐ§ÐÔ¼ì²é
-    const uint32_t MAGIC_NUMBER = 0xAA55CC33; // Ìí¼ÓÄ§ÊýÑéÖ¤
+    // ï¿½Ø¼ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó¸ï¿½ï¿½Ï¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð§ï¿½Ô¼ï¿½ï¿½
+    const uint32_t MAGIC_NUMBER = 0xAA55CC33; // ï¿½ï¿½ï¿½ï¿½Ä§ï¿½ï¿½ï¿½ï¿½Ö¤
     if (flash_params->magic == MAGIC_NUMBER && 
         flash_params->crc == crc_calc && 
-        flash_params->scale > 0.1f &&  // ºÏÀí·¶Î§¼ì²é
-        fabsf(flash_params->offset) > 1000.0f) // ºÏÀí·¶Î§¼ì²é
+        flash_params->scale > 0.1f &&  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î§ï¿½ï¿½ï¿½
+        fabsf(flash_params->offset) > 1000.0f) // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î§ï¿½ï¿½ï¿½
     {
-        // CRCÆ¥ÅäÇÒÊý¾ÝºÏÀí£ºÊ¹ÓÃ´æ´¢µÄ²ÎÊý
+        // CRCÆ¥ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ýºï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½Ã´æ´¢ï¿½Ä²ï¿½ï¿½ï¿½
         hx711_params.offset = flash_params->offset;
         hx711_params.scale  = flash_params->scale;
         hx711_params.current_gain = flash_params->current_gain;
@@ -322,75 +312,75 @@ void HX711_LoadParams(void) {
         Serial_Printf("Offset: %.2f\r\n", flash_params->offset);
         Serial_Printf("Scale: %.6f\r\n", flash_params->scale);
     } else {
-        // CRC²»Æ¥Åä»òÊý¾Ý²»ºÏÀí£ºÊ¹ÓÃÄ¬ÈÏÖµ
+        // CRCï¿½ï¿½Æ¥ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½Ä¬ï¿½ï¿½Öµ
         hx711_params.offset = 0;
         hx711_params.scale = 1.0f;
         hx711_params.current_gain = CHANNEL_B_GAIN_32;
         Serial_Printf("! Using default parameters (invalid saved data)\r\n");
         
-        // ¹Ø¼üÐÞ¸´£ºÌí¼Óµ÷ÊÔÐÅÏ¢°ïÖúÕï¶ÏÎÊÌâ
+        // ï¿½Ø¼ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Óµï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         Serial_Printf("! Flash data: magic=0x%08lX, crc_stored=0x%08lX, crc_calc=0x%08lX\r\n",
                       flash_params->magic, flash_params->crc, crc_calc);
     }
 }
 
-// ±£´æ²ÎÊýµ½Flashº¯Êý
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Flashï¿½ï¿½ï¿½ï¿½
 void HX711_SaveParams(void) {
-    FLASH_Status status;  // Flash²Ù×÷×´Ì¬
+    FLASH_Status status;  // Flashï¿½ï¿½ï¿½ï¿½×´Ì¬
     
-    // ¹Ø¼üÐÞ¸´£ºÔÚ±£´æÇ°Ìí¼ÓÄ§Êý±êÊ¶
+    // ï¿½Ø¼ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½Ú±ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½Ä§ï¿½ï¿½ï¿½ï¿½Ê¶
     const uint32_t MAGIC_NUMBER = 0xAA55CC33;
     hx711_params.magic = MAGIC_NUMBER;
     
-    // ¼ÆËã²ÎÊýµÄCRC32Öµ£¨²»°üÀ¨crc×Ö¶Î×ÔÉí£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½CRC32Öµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½crcï¿½Ö¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     hx711_params.crc = calc_crc32((uint8_t*)&hx711_params, sizeof(HX711_Params)-4);
     
-    // ½âËøFlash²Ù×÷
+    // ï¿½ï¿½ï¿½ï¿½Flashï¿½ï¿½ï¿½ï¿½
     FLASH_Unlock();
     
-    // Çå³ýËùÓÐFlash×´Ì¬±êÖ¾
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Flash×´Ì¬ï¿½ï¿½Ö¾
     FLASH_ClearFlag(FLASH_FLAG_EOP | FLASH_FLAG_PGERR | FLASH_FLAG_WRPRTERR);
     
-    // ¹Ø¼üÐÞ¸´£ºÌí¼ÓFlash²Á³ýÇ°µÄ×´Ì¬¼ì²é
+    // ï¿½Ø¼ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Flashï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½
     while(FLASH_GetFlagStatus(FLASH_FLAG_BSY) != RESET) {
-        // µÈ´ýFlash¿ÕÏÐ
+        // ï¿½È´ï¿½Flashï¿½ï¿½ï¿½ï¿½
     }
     
-    // ²Á³ýÄ¿±êFlashÒ³
+    // ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½FlashÒ³
     status = FLASH_ErasePage(HX711_PARAM_FLASH_ADDR);
     
-    // ¼ì²é²Á³ý²Ù×÷ÊÇ·ñ³É¹¦
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½É¹ï¿½
     if(status != FLASH_COMPLETE) {
-        FLASH_Lock(); // Ëø¶¨Flashºó·µ»Ø
+        FLASH_Lock(); // ï¿½ï¿½ï¿½ï¿½Flashï¿½ó·µ»ï¿½
         Serial_Printf("! Flash erase failed: %d\r\n", status);
         return;
     }
     
-    // ×¼±¸Ð´ÈëÊý¾Ý
-    uint32_t *src = (uint32_t*)&hx711_params;     // Ô´Êý¾Ý£¨ÄÚ´æÖÐ£©
-    uint32_t *dst = (uint32_t*)HX711_PARAM_FLASH_ADDR; // Ä¿±êµØÖ·£¨Flash£©
+    // ×¼ï¿½ï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    uint32_t *src = (uint32_t*)&hx711_params;     // Ô´ï¿½ï¿½ï¿½Ý£ï¿½ï¿½Ú´ï¿½ï¿½Ð£ï¿½
+    uint32_t *dst = (uint32_t*)HX711_PARAM_FLASH_ADDR; // Ä¿ï¿½ï¿½ï¿½Ö·ï¿½ï¿½Flashï¿½ï¿½
     
-    // ¹Ø¼üÐÞ¸´£ºÖð×ÖÐ´ÈëÊ±¼ì²éFlash×´Ì¬
+    // ï¿½Ø¼ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð´ï¿½ï¿½Ê±ï¿½ï¿½ï¿½Flash×´Ì¬
     for (int i = 0; i < sizeof(HX711_Params)/4; i++) {
-        // Ã¿´ÎÐ´ÈëÇ°¼ì²éFlash×´Ì¬
+        // Ã¿ï¿½ï¿½Ð´ï¿½ï¿½Ç°ï¿½ï¿½ï¿½Flash×´Ì¬
         while(FLASH_GetFlagStatus(FLASH_FLAG_BSY) != RESET) {
-            // µÈ´ýFlash¿ÕÏÐ
+            // ï¿½È´ï¿½Flashï¿½ï¿½ï¿½ï¿½
         }
         
-        // ±à³ÌÒ»¸ö32Î»×Öµ½Flash
+        // ï¿½ï¿½ï¿½Ò»ï¿½ï¿½32Î»ï¿½Öµï¿½Flash
         status = FLASH_ProgramWord((uint32_t)dst, *src);
         
-        // ¼ì²é±à³Ì×´Ì¬
+        // ï¿½ï¿½ï¿½ï¿½ï¿½×´Ì¬
         if(status != FLASH_COMPLETE) {
             Serial_Printf("! Flash write failed at 0x%08lX: %d\r\n", (uint32_t)dst, status);
-            break; // ´íÎóÔòÖÕÖ¹
+            break; // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¹
         }
         
-        src++;  // ÏÂÒ»Ô´Êý¾Ý
-        dst++;  // ÏÂÒ»Ä¿±êÎ»ÖÃ
+        src++;  // ï¿½ï¿½Ò»Ô´ï¿½ï¿½ï¿½ï¿½
+        dst++;  // ï¿½ï¿½Ò»Ä¿ï¿½ï¿½Î»ï¿½ï¿½
     }
     
-    // Ëø¶¨Flash£¨·ÀÖ¹ÎóÐ´£©
+    // ï¿½ï¿½ï¿½ï¿½Flashï¿½ï¿½ï¿½ï¿½Ö¹ï¿½ï¿½Ð´ï¿½ï¿½
     FLASH_Lock();
     
     Serial_Printf("Configuration saved to flash.\r\n");
