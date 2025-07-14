@@ -87,18 +87,30 @@ fun EditRecipeScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Helper function for validating numeric input within a range
+            val validateInRange: (String, IntRange, (String) -> Unit) -> Unit = { input, range, onValidChange ->
+                val filteredInput = input.filter { it.isDigit() }
+                if (filteredInput.isBlank()) {
+                    onValidChange("") // Or handle as "0"
+                } else {
+                    val value = filteredInput.toIntOrNull() ?: 0
+                    onValidChange(value.coerceIn(range).toString())
+                }
+            }
+
             OutlinedTextField(
                 value = recipe.water.toString(),
-                onValueChange = onWaterChange,
-                label = { Text("水量 (ml)") },
+                onValueChange = { validateInRange(it, 0..255, onWaterChange) },
+                label = { Text("水量 (ml) [0-255]") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = recipe.juice.toString(),
-                onValueChange = onJuiceChange,
-                label = { Text("果汁量 (ml)") },
+                onValueChange = { validateInRange(it, 0..255, onJuiceChange) },
+                label = { Text("果汁量 (ml) [0-255]") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -113,15 +125,16 @@ fun EditRecipeScreen(
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = recipe.remainWeight.toString(),
-                onValueChange = { onStockChange(it) },
-                label = { Text("剩余重量 (g)") },
+                onValueChange = { validateInRange(it, 0..1000000, onStockChange) },
+                label = { Text("剩余重量 (g) [0-1000000]") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = recipe.juiceChannel.toString(),
-                onValueChange = onJuiceChannelChange,
+                onValueChange = { validateInRange(it, 1..3, onJuiceChannelChange) },
                 label = { Text("果汁通道 (1-3)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()

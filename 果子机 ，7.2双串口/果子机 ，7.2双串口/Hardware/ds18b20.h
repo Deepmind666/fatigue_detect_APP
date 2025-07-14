@@ -3,12 +3,12 @@
 
 #include "stm32f10x.h"
 
-// Ê¹ÓÃPC15Òý½Å
+// Ê¹ï¿½ï¿½PC15ï¿½ï¿½ï¿½ï¿½
 #define DS18B20_PORT         GPIOC
 #define DS18B20_PIN          GPIO_Pin_15
 #define DS18B20_RCC          RCC_APB2Periph_GPIOC
 
-// º¯ÊýÉùÃ÷
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void DS18B20_Init(void);
 float DS18B20_ReadTemp(void);
 static void DS18B20_Reset(void);

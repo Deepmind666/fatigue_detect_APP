@@ -113,15 +113,15 @@ void ExecuteRecipe(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3
     }
 				
     if (juice1 > 0) {
-        BlockingGravityCompensation(2, juice1); // 修正通道号
+        BlockingGravityCompensation(2, juice1);
     }
     
     if (juice2 > 0) {
-        BlockingGravityCompensation(3, juice2); // 修正通道号
+        BlockingGravityCompensation(3, juice2);
     }
     
     if (juice3 > 0) {
-        BlockingGravityCompensation(4, juice3); // 修正通道号
+        BlockingGravityCompensation(4, juice3);
     }
     
     // 发送任务完成回执

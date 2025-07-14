@@ -7,7 +7,7 @@
 #include <float.h>   // 引入float.h以使用FLT_MAX
 
 // 定义一个大致的流速，用于模拟模式，单位：克/秒
-#define SIMULATED_FLOW_RATE 15.0f 
+#define SIMULATED_FLOW_RATE 30.0f 
 
 void BlockingGravityCompensation(uint8_t channel, uint32_t targetWeight)
 {
@@ -15,8 +15,7 @@ void BlockingGravityCompensation(uint8_t channel, uint32_t targetWeight)
 
     // 检查传感器是否连接
     if (initialWeight == FLT_MAX) {
-        // --- 传感器未连接，进入模拟模式 ---
-        Serial2_Printf("Sensor disconnected. Entering simulation mode for Ch:%d, Weight:%dg\r\n", channel, targetWeight);
+        // 传感器未连接，执行基于时间的延时补偿 (用于无硬件调试)
         
         // 根据目标重量和估算的流速计算所需时间
         uint32_t delay_ms = (uint32_t)((targetWeight / SIMULATED_FLOW_RATE) * 1000.0f);
@@ -32,11 +31,18 @@ void BlockingGravityCompensation(uint8_t channel, uint32_t targetWeight)
         }
 
         Motor_Control(channel, 0); // 关闭电机
-        Serial2_Printf("Simulation for Ch:%d finished.\r\n", channel);
+        
+        // 根据通道号打印更清晰的日志
+        switch(channel) {
+            case 1: Serial2_Printf("Water: finished\r\n"); break;
+            case 2: Serial2_Printf("Juice1: finished\r\n"); break;
+            case 3: Serial2_Printf("Juice2: finished\r\n"); break;
+            case 4: Serial2_Printf("Juice3: finished\r\n"); break;
+        }
         return;
 
     } else {
-        // --- 传感器已连接，执行正常的重量补偿 ---
+        // 传感器已连接，执行标准的重量补偿
         float currentWeight = initialWeight;
         float targetTotalWeight = initialWeight + targetWeight;
         float gap;
@@ -61,6 +67,14 @@ void BlockingGravityCompensation(uint8_t channel, uint32_t targetWeight)
                 Motor_Control(channel, 0);
                 IWDG_ReloadCounter();
                 Delay_ms(1000);
+
+                // 根据通道号打印更清晰的日志
+                switch(channel) {
+                    case 1: Serial2_Printf("Water: finished\r\n"); break;
+                    case 2: Serial2_Printf("Juice1: finished\r\n"); break;
+                    case 3: Serial2_Printf("Juice2: finished\r\n"); break;
+                    case 4: Serial2_Printf("Juice3: finished\r\n"); break;
+                }
                 return;
             }
             

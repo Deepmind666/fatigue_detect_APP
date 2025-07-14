@@ -47,6 +47,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import com.example.juicemachine.R
+import androidx.compose.material3.ButtonColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,8 +141,7 @@ fun AdminScreen(
                                 text = "紧急停止",
                                 onClick = onStop,
                                 modifier = Modifier.weight(1f),
-                                isPrimary = false,
-                                color = MaterialTheme.colorScheme.error
+                                isPrimary = true // 修改为 true，与“一键清洗”保持一致
                             )
                         }
 
@@ -177,7 +177,11 @@ fun AdminScreen(
                                 text = "恢复默认配方",
                                 onClick = onRestoreDefaults,
                                 modifier = Modifier.fillMaxWidth(0.6f),
-                                isPrimary = false
+                                isPrimary = false, // 保持为次要，但提供覆盖颜色
+                                // 精确覆盖为旧的绿色（主题中的次要颜色）
+                                overrideColors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary
+                                )
                             )
                         }
                     }
@@ -329,20 +333,23 @@ fun ActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isPrimary: Boolean = false,
-    color: Color = MaterialTheme.colorScheme.onPrimary
+    isPrimary: Boolean = true,
+    overrideColors: ButtonColors? = null
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier
-            .width(150.dp)
-            .height(60.dp),
+        modifier = modifier,
         shape = RoundedCornerShape(12.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isPrimary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-            contentColor = color
-        )
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+        colors = overrideColors ?: if (isPrimary) {
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        } else {
+            ButtonDefaults.filledTonalButtonColors()
+        }
     ) {
-        Text(text = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 } 
