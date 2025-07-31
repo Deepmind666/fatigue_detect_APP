@@ -1,5 +1,4 @@
 .\objects\gra_com.o: Hardware\Gra_Com.c
-.\objects\gra_com.o: Hardware\hx711.h
 .\objects\gra_com.o: .\Start\stm32f10x.h
 .\objects\gra_com.o: .\Start\core_cm3.h
 .\objects\gra_com.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdint.h
@@ -29,8 +28,10 @@
 .\objects\gra_com.o: .\Library\stm32f10x_usart.h
 .\objects\gra_com.o: .\Library\stm32f10x_wwdg.h
 .\objects\gra_com.o: .\Library\misc.h
+.\objects\gra_com.o: Hardware\hx711.h
 .\objects\gra_com.o: Hardware\Delay.h
 .\objects\gra_com.o: Hardware\Motor.h
 .\objects\gra_com.o: Hardware\serial2.h
 .\objects\gra_com.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
 .\objects\gra_com.o: Hardware\Gra_Com.h
+.\objects\gra_com.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\float.h

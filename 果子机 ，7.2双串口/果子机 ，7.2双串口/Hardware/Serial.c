@@ -1,13 +1,24 @@
-#ifndef __SERIAL2_H
-#define __SERIAL2_H
+#ifndef __SERIAL_H
+#define __SERIAL_H
 
 #include <stdio.h>
 #include "stm32f10x.h"
 #include <stdarg.h>
+#include "Serial.h"
+
+// 状态定义
+typedef enum {
+    STATE_WAIT_START,
+    STATE_RECEIVE_DATA,
+    STATE_WAIT_END
+} RxState;
 
 uint8_t Serial_TxPacket[5];
 uint8_t Serial_RxPacket[5];
-uint8_t Serial_RxFlag = 0;
+uint8_t Serial_RxFlag;
+
+static RxState currentState = STATE_WAIT_START;
+static uint8_t dataIndex = 0;
 
 void Serial_Init(void)
 {
@@ -116,48 +127,50 @@ void Serial_SendPacket(void)
 
 uint8_t Serial_GetRxFlag(void)
 {
+	uint8_t flag_status = 0;
+	
+	__disable_irq(); // 关闭全局中断
 	if (Serial_RxFlag == 1)
 	{
 		Serial_RxFlag = 0;
-		return 1;
+		flag_status = 1;
 	}
-	return 0;
+	__enable_irq(); // 开启全局中断
+	
+	return flag_status;
 }
 
 void USART1_IRQHandler(void)
 {
-	static uint8_t RxState = 0;
-	static uint8_t pRxPacket = 0;
-	
 	if (USART_GetITStatus(USART1, USART_IT_RXNE) == SET)
 	{
 		uint8_t RxData = USART_ReceiveData(USART1);
 		
-		switch(RxState)
+		switch (currentState)
 		{
-			case 0:
+			case STATE_WAIT_START:
 				if (RxData == 0xFF)
 				{
-					RxState = 1;
-					pRxPacket = 0;
+					currentState = STATE_RECEIVE_DATA;
+					dataIndex = 0;
 				}
 				break;
 			
-			case 1:
-				Serial_RxPacket[pRxPacket] = RxData;
-				pRxPacket++;
-				if (pRxPacket >= 5)
+			case STATE_RECEIVE_DATA:
+				Serial_RxPacket[dataIndex++] = RxData;
+				if (dataIndex >= 5)
 				{
-					RxState = 2;
+					currentState = STATE_WAIT_END;
 				}
 				break;
 			
-			case 2:
+			case STATE_WAIT_END:
 				if (RxData == 0xFE)
 				{
 					Serial_RxFlag = 1;
 				}
-				RxState = 0;
+				// 无论结束字节是否正确，都重置状态机以准备下一次接收
+				currentState = STATE_WAIT_START;
 				break;
 		}
 		

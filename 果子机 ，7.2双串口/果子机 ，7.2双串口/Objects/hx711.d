@@ -34,3 +34,4 @@
 .\objects\hx711.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
 .\objects\hx711.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stddef.h
 .\objects\hx711.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\math.h
+.\objects\hx711.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\float.h

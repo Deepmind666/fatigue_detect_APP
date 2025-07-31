@@ -5,6 +5,7 @@
 
 extern uint8_t Serial_TxPacket[];
 extern uint8_t Serial_RxPacket[];
+extern uint8_t Serial_RxFlag;
 
 void Serial_Init(void);
 void Serial_SendByte(uint8_t Byte);

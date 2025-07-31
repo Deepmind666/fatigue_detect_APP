@@ -30,3 +30,4 @@
 .\objects\serial.o: .\Library\stm32f10x_wwdg.h
 .\objects\serial.o: .\Library\misc.h
 .\objects\serial.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdarg.h
+.\objects\serial.o: Hardware\Serial.h
