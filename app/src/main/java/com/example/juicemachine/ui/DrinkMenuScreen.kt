@@ -67,7 +67,10 @@ fun DrinkMenuScreen(
     onDismissDialog: () -> Unit,
     onConfirmDialog: (Recipe, String, Boolean) -> Unit,
     onLoginAttempt: (String) -> Unit,
-    onDismissError: () -> Unit
+    onDismissError: () -> Unit,
+    onSimulateWeightChange: () -> Unit,  // 新增
+    onContinueRecipe: () -> Unit,         // 新增
+    onRestartRecipe: () -> Unit           // 新增
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -79,6 +82,19 @@ fun DrinkMenuScreen(
                 recipes = uiState.recipes,
                 onRecipeSelected = onRecipeClick
             )
+            
+            // 新增：测试按钮
+            Button(
+                onClick = onSimulateWeightChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondary
+                )
+            ) {
+                Text("模拟杯子移动检测", color = MaterialTheme.colorScheme.onSecondary)
+            }
         }
 
         // The bottom action buttons are removed as they will be moved to the Admin screen.
@@ -135,6 +151,15 @@ fun DrinkMenuScreen(
             confirmButton = {
                 Button(onClick = { onDismissError() }) { Text("确定") }
             }
+        )
+    }
+    
+    // 新增：重量变化弹窗
+    if (uiState.showWeightChangeDialog) {
+        WeightChangeDialog(
+            onContinue = onContinueRecipe,
+            onRestart = onRestartRecipe,
+            onDismiss = { /* 可以添加取消逻辑 */ }
         )
     }
 }
@@ -724,6 +749,65 @@ fun LoginDialog(
     )
 }
 
+@Composable
+fun WeightChangeDialog(
+    onContinue: () -> Unit,
+    onRestart: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text(
+                "检测到杯子被移动",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            ) 
+        },
+        text = { 
+            Text(
+                "制作过程中检测到重量变化，请选择操作：",
+                style = MaterialTheme.typography.bodyMedium
+            ) 
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onContinue,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text("继续制作", fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = onRestart,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Text("重新制作", fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Text("取消")
+            }
+        }
+    )
+}
+
 @Preview(showBackground = true)
 @Composable
 fun DrinkMenuScreenPreview() {
@@ -740,7 +824,10 @@ fun DrinkMenuScreenPreview() {
             onDismissDialog = {},
             onConfirmDialog = { _, _, _ -> },
             onLoginAttempt = {},
-            onDismissError = {}
+            onDismissError = {},
+            onSimulateWeightChange = {},
+            onContinueRecipe = {},
+            onRestartRecipe = {}
         )
     }
 } 

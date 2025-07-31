@@ -26,7 +26,12 @@ data class DrinkMenuUiState(
     val loginError: Boolean = false,
     val navigateToAdmin: Boolean = false,
     val navigateToEdit: Boolean = false,
-    val errorMessage: String? = null // 新增错误提示
+    val errorMessage: String? = null, // 新增错误提示
+    val showWeightChangeDialog: Boolean = false, // 新增：重量变化弹窗
+    val isInterrupted: Boolean = false, // 新增：是否中断状态
+    val interruptedRecipe: Recipe? = null, // 新增：中断时的配方
+    val interruptedCupSize: String = "", // 新增：中断时的杯型
+    val interruptedWithIce: Boolean = false // 新增：中断时的冰度
 )
 
 class DrinkMenuViewModel(
@@ -217,6 +222,46 @@ class DrinkMenuViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    // 新增：模拟重量变化检测
+    fun onSimulateWeightChange() {
+        _uiState.update { 
+            it.copy(
+                showWeightChangeDialog = true,
+                isInterrupted = true,
+                interruptedRecipe = it.selectedRecipe,
+                interruptedCupSize = "中杯", // 默认值
+                interruptedWithIce = true    // 默认值
+            ) 
+        }
+    }
+
+    // 新增：继续制作
+    fun onContinueRecipe() {
+        val state = _uiState.value
+        state.interruptedRecipe?.let { recipe ->
+            onConfirmDialog(recipe, state.interruptedCupSize, state.interruptedWithIce)
+        }
+        _uiState.update { 
+            it.copy(
+                showWeightChangeDialog = false,
+                isInterrupted = false,
+                interruptedRecipe = null
+            ) 
+        }
+    }
+
+    // 新增：重新制作
+    fun onRestartRecipe() {
+        _uiState.update { 
+            it.copy(
+                showWeightChangeDialog = false,
+                isInterrupted = false,
+                interruptedRecipe = null,
+                errorMessage = "请倒掉饮品并重新放置杯子！"
+            ) 
+        }
     }
 
     // 添加恢复默认数据的函数

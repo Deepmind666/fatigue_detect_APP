@@ -45,7 +45,10 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 onDismissDialog = viewModel::onDismissDialog,
                 onConfirmDialog = viewModel::onConfirmDialog,
                 onLoginAttempt = viewModel::onLoginAttempt,
-                onDismissError = viewModel::clearError
+                onDismissError = viewModel::clearError,
+                onSimulateWeightChange = viewModel::onSimulateWeightChange,
+                onContinueRecipe = viewModel::onContinueRecipe,
+                onRestartRecipe = viewModel::onRestartRecipe
             )
         }
         composable(Screen.Admin.route) {
