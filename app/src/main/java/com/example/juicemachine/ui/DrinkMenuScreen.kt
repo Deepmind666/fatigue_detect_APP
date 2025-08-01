@@ -269,7 +269,8 @@ fun DrinkGrid(recipes: List<Recipe>, onRecipeSelected: (Recipe) -> Unit) {
         columns = GridCells.Fixed(3), // 固定3列，更适合平板屏幕
         modifier = Modifier
             .padding(horizontal = 8.dp, vertical = 6.dp)
-            .fillMaxSize(),
+            .fillMaxWidth()
+            .height(400.dp), // 固定高度，为按钮留出空间
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 12.dp)
