@@ -14,10 +14,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +36,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.juicemachine.R
@@ -64,6 +72,10 @@ fun EditRecipeScreen(
         onImageSelected(uri)
     }
 
+    // 状态管理
+    var showCropDialog by remember { mutableStateOf(false) }
+    var showScaleDialog by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -93,11 +105,11 @@ fun EditRecipeScreen(
                 .verticalScroll(rememberScrollState())
                 .fillMaxSize()
         ) {
-            // 新增：图片选择区域
+            // 优化：图片选择区域
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp),
+                    .height(220.dp), // 增加高度以容纳控制按钮
                 shape = RoundedCornerShape(16.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                 colors = CardDefaults.cardColors(
@@ -105,75 +117,156 @@ fun EditRecipeScreen(
                 )
             ) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable {
-                            imagePickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
-                    contentAlignment = Alignment.Center
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    if (selectedImageUri != null) {
-                        // 显示选中的图片
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(selectedImageUri)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "饮品图片",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        // 显示默认图片或占位符
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                Icons.Filled.PhotoCamera,
-                                contentDescription = "选择图片",
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "点击选择饮品图片",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "当前: ${getDrawableForRecipe(recipe.name)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                    
-                    // 选择按钮覆盖层
-                    Card(
+                    // 图片显示区域
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
-                        )
-                    ) {
-                        IconButton(
-                            onClick = {
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clickable {
                                 imagePickerLauncher.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedImageUri != null) {
+                            // 显示选中的图片 - 使用自适应缩放
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(selectedImageUri)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "饮品图片",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop, // 使用Crop确保填充整个区域
+                                onSuccess = { _ ->
+                                    // 可以在这里获取图片尺寸信息
+                                }
+                            )
+                        } else {
+                            // 显示默认图片或占位符
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.PhotoCamera,
+                                    contentDescription = "选择图片",
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "点击选择饮品图片",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "支持横图、竖图自动适配",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
                             }
+                        }
+                    }
+                    
+                    // 控制按钮区域 - 底部
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // 选择图片按钮
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                            )
                         ) {
-                            Icon(
-                                Icons.Filled.PhotoCamera,
-                                contentDescription = "选择图片",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                            IconButton(
+                                onClick = {
+                                    imagePickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Filled.PhotoCamera,
+                                    contentDescription = "选择图片",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        
+                        // 裁剪按钮（仅在有图片时显示）
+                        if (selectedImageUri != null) {
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.9f)
+                                )
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        showCropDialog = true
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Crop,
+                                        contentDescription = "裁剪图片",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // 缩放按钮（仅在有图片时显示）
+                        if (selectedImageUri != null) {
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.9f)
+                                )
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        showScaleDialog = true
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Filled.ZoomIn,
+                                        contentDescription = "缩放图片",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 图片信息提示
+                    if (selectedImageUri != null) {
+                        Card(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(8.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color.Black.copy(alpha = 0.7f)
+                            )
+                        ) {
+                            Text(
+                                text = "已选择图片",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -242,6 +335,34 @@ fun EditRecipeScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+    
+    // 显示裁剪对话框
+    if (showCropDialog && selectedImageUri != null) {
+        ImageCropDialog(
+            imageUri = selectedImageUri,
+            onCropComplete = { croppedUri ->
+                onImageSelected(croppedUri)
+                showCropDialog = false
+            },
+            onDismiss = {
+                showCropDialog = false
+            }
+        )
+    }
+    
+    // 显示缩放对话框
+    if (showScaleDialog && selectedImageUri != null) {
+        ImageScaleDialog(
+            imageUri = selectedImageUri,
+            onScaleComplete = { scaledUri ->
+                onImageSelected(scaledUri)
+                showScaleDialog = false
+            },
+            onDismiss = {
+                showScaleDialog = false
+            }
+        )
     }
 }
 
