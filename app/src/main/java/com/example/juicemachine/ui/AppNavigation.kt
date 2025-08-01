@@ -82,7 +82,9 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 },
                 onNavigateBack = {
                     navController.popBackStack()
-                }
+                },
+                onImageSelected = viewModel::onImageSelected,
+                selectedImageUri = uiState.selectedImageUri
             )
         }
     }

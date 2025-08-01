@@ -31,7 +31,8 @@ data class DrinkMenuUiState(
     val isInterrupted: Boolean = false, // 新增：是否中断状态
     val interruptedRecipe: Recipe? = null, // 新增：中断时的配方
     val interruptedCupSize: String = "", // 新增：中断时的杯型
-    val interruptedWithIce: Boolean = false // 新增：中断时的冰度
+    val interruptedWithIce: Boolean = false, // 新增：中断时的冰度
+    val selectedImageUri: android.net.Uri? = null // 新增：选中的图片URI
 )
 
 class DrinkMenuViewModel(
@@ -262,6 +263,17 @@ class DrinkMenuViewModel(
                 errorMessage = "请倒掉饮品并重新放置杯子！"
             ) 
         }
+    }
+
+    // 新增：图片选择处理
+    fun onImageSelected(uri: android.net.Uri?) {
+        _uiState.update { it.copy(selectedImageUri = uri) }
+        Log.d("DrinkMenuViewModel", "图片已选择: $uri")
+    }
+
+    // 新增：清除选中的图片
+    fun clearSelectedImage() {
+        _uiState.update { it.copy(selectedImageUri = null) }
     }
 
     // 添加恢复默认数据的函数
