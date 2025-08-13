@@ -115,11 +115,11 @@ fun ImageCropDialog(
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     // 旋转按钮
-                                         IconButton(
-                         onClick = { rotation -= 90f }
-                     ) {
-                         Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = "向左旋转")
-                     }
+                    IconButton(
+                        onClick = { rotation -= 90f }
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = "向左旋转")
+                    }
                      
                      IconButton(
                          onClick = { rotation += 90f }

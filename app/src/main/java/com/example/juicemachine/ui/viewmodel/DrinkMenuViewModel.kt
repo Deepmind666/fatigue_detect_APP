@@ -321,9 +321,9 @@ class DrinkMenuViewModel(
             return
         }
         
-        // 重新发送上一次的制作指令
+        // 发送重新制作指令 (0x0B)
         Log.d("DrinkMenuViewModel", "重新制作: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
-        hardwareManager.makeJuice(recipe, cupSize, withIce)
+        hardwareManager.sendRestartCommand()
         
         _uiState.update { 
             it.copy(

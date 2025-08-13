@@ -238,9 +238,32 @@ class HardwareManager(
             val hexString = data.joinToString(separator = " ") { "%02X".format(it) }
             Log.d("HardwareManager", "接收到数据: $hexString")
             
-            // 检查是否是重量异常指令 (0x09)
-            if (data.size >= 7 && data[0] == 0xFF.toByte() && data[1] == 0x09.toByte() && data[6] == 0xFE.toByte()) {
-                parseWeightAnomalyData(data)
+            // 尝试解析为文本响应
+            val textResponse = String(data, Charsets.UTF_8).trim()
+            when {
+                textResponse.contains("TEST_OK") -> {
+                    Log.d("HardwareManager", "收到连接测试确认: $textResponse")
+                    scope.launch(Dispatchers.Main) {
+                        Toast.makeText(context, "设备连接测试成功", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                textResponse.contains("MAKE_COMPLETE") -> {
+                    Log.d("HardwareManager", "收到制作完成确认: $textResponse")
+                    scope.launch(Dispatchers.Main) {
+                        Toast.makeText(context, "饮品制作完成", Toast.LENGTH_LONG).show()
+                    }
+                }
+                // 检查是否是重量异常指令 (0x09)
+                data.size >= 7 && data[0] == 0xFF.toByte() && data[1] == 0x09.toByte() && data[6] == 0xFE.toByte() -> {
+                    parseWeightAnomalyData(data)
+                }
+                // 检查其他二进制指令
+                data.size >= 7 && data[0] == 0xFF.toByte() && data[6] == 0xFE.toByte() -> {
+                    parseOtherCommands(data)
+                }
+                else -> {
+                    Log.d("HardwareManager", "收到未知数据: $textResponse")
+                }
             }
         }
     }
@@ -280,6 +303,33 @@ class HardwareManager(
             
         } catch (e: Exception) {
             Log.e("HardwareManager", "解析重量异常数据失败", e)
+        }
+    }
+
+    private fun parseOtherCommands(data: ByteArray) {
+        try {
+            val commandCode = data[1]
+            when (commandCode) {
+                0x0A.toByte() -> {
+                    // 继续制作指令确认
+                    Log.d("HardwareManager", "收到继续制作指令确认")
+                    scope.launch(Dispatchers.Main) {
+                        Toast.makeText(context, "设备已确认继续制作指令", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                0x0B.toByte() -> {
+                    // 重新制作指令确认
+                    Log.d("HardwareManager", "收到重新制作指令确认")
+                    scope.launch(Dispatchers.Main) {
+                        Toast.makeText(context, "设备已确认重新制作指令", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                else -> {
+                    Log.d("HardwareManager", "收到未知指令码: 0x%02X".format(commandCode))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("HardwareManager", "解析其他指令失败", e)
         }
     }
 
