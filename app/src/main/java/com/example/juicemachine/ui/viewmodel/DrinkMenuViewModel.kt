@@ -266,27 +266,12 @@ class DrinkMenuViewModel(
 
     // 新增：继续制作
     fun onContinueRecipe() {
-        if (!hardwareManager.isConnected) {
-            _uiState.update { 
-                it.copy(
-                    showWeightChangeDialog = false,
-                    isInterrupted = false,
-                    interruptedRecipe = null,
-                    errorMessage = "串口未连接，无法发送继续制作指令"
-                ) 
-            }
-            return
-        }
-        
-        // 发送继续制作指令 (0x0A)
-        hardwareManager.sendContinueCommand()
-        
         _uiState.update { 
             it.copy(
                 showWeightChangeDialog = false,
                 isInterrupted = false,
                 interruptedRecipe = null,
-                errorMessage = "已发送继续制作指令"
+                errorMessage = "继续制作当前饮品"
             ) 
         }
     }
@@ -298,39 +283,16 @@ class DrinkMenuViewModel(
         val cupSize = currentState.interruptedCupSize
         val withIce = currentState.interruptedWithIce
         
-        if (!hardwareManager.isConnected) {
-            _uiState.update { 
-                it.copy(
-                    showWeightChangeDialog = false,
-                    isInterrupted = false,
-                    interruptedRecipe = null,
-                    errorMessage = "串口未连接，无法重新制作"
-                ) 
-            }
-            return
+        if (recipe != null) {
+            Log.d("DrinkMenuViewModel", "重新制作: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
         }
-        
-        if (recipe == null) {
-            _uiState.update { 
-                it.copy(
-                    showWeightChangeDialog = false,
-                    isInterrupted = false,
-                    errorMessage = "没有找到中断的配方信息"
-                ) 
-            }
-            return
-        }
-        
-        // 发送重新制作指令 (0x0B)
-        Log.d("DrinkMenuViewModel", "重新制作: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
-        hardwareManager.sendRestartCommand()
         
         _uiState.update { 
             it.copy(
                 showWeightChangeDialog = false,
                 isInterrupted = false,
                 interruptedRecipe = null,
-                errorMessage = "已重新开始制作${recipe.name}，请倒掉之前的饮品并重新放置杯子！"
+                errorMessage = "已重新开始制作${recipe?.name ?: "饮品"}，请倒掉之前的饮品并重新放置杯子！"
             ) 
         }
     }

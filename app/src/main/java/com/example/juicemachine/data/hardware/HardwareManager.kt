@@ -160,37 +160,7 @@ class HardwareManager(
         sendCommand(command)
     }
 
-    // 发送继续制作指令 (0x0A)
-    fun sendContinueCommand() {
-        val command = byteArrayOf(
-            0xFF.toByte(),
-            0x0A.toByte(),
-            0x00, 0x00, 0x00, 0x00,
-            0xFE.toByte()
-        )
 
-        scope.launch(Dispatchers.Main) {
-            Toast.makeText(context, "发送继续制作指令 (0x0A)", Toast.LENGTH_SHORT).show()
-        }
-        Log.d("HardwareManager", "发送继续制作指令: 0x0A")
-        sendCommand(command)
-    }
-
-    // 发送重新制作指令 (0x0B)
-    fun sendRestartCommand() {
-        val command = byteArrayOf(
-            0xFF.toByte(),
-            0x0B.toByte(),
-            0x00, 0x00, 0x00, 0x00,
-            0xFE.toByte()
-        )
-
-        scope.launch(Dispatchers.Main) {
-            Toast.makeText(context, "发送重新制作指令 (0x0B)", Toast.LENGTH_SHORT).show()
-        }
-        Log.d("HardwareManager", "发送重新制作指令: 0x0B")
-        sendCommand(command)
-    }
 
     private fun sendCommand(data: ByteArray) {
         if (serialPort == null || !isConnected) {
@@ -253,13 +223,9 @@ class HardwareManager(
                         Toast.makeText(context, "饮品制作完成", Toast.LENGTH_LONG).show()
                     }
                 }
-                // 检查是否是重量异常指令 (0x09)
+                // 检查是否为重量异常指令 (0x09)
                 data.size >= 7 && data[0] == 0xFF.toByte() && data[1] == 0x09.toByte() && data[6] == 0xFE.toByte() -> {
                     parseWeightAnomalyData(data)
-                }
-                // 检查其他二进制指令
-                data.size >= 7 && data[0] == 0xFF.toByte() && data[6] == 0xFE.toByte() -> {
-                    parseOtherCommands(data)
                 }
                 else -> {
                     Log.d("HardwareManager", "收到未知数据: $textResponse")
@@ -306,32 +272,7 @@ class HardwareManager(
         }
     }
 
-    private fun parseOtherCommands(data: ByteArray) {
-        try {
-            val commandCode = data[1]
-            when (commandCode) {
-                0x0A.toByte() -> {
-                    // 继续制作指令确认
-                    Log.d("HardwareManager", "收到继续制作指令确认")
-                    scope.launch(Dispatchers.Main) {
-                        Toast.makeText(context, "设备已确认继续制作指令", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                0x0B.toByte() -> {
-                    // 重新制作指令确认
-                    Log.d("HardwareManager", "收到重新制作指令确认")
-                    scope.launch(Dispatchers.Main) {
-                        Toast.makeText(context, "设备已确认重新制作指令", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                else -> {
-                    Log.d("HardwareManager", "收到未知指令码: 0x%02X".format(commandCode))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("HardwareManager", "解析其他指令失败", e)
-        }
-    }
+
 
     override fun onRunError(e: Exception) {
         Log.e("HardwareManager", "Serial port run error", e)
