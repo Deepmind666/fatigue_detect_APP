@@ -267,7 +267,15 @@ class DrinkMenuViewModel(
     // 新增：继续制作
     fun onContinueRecipe() {
         if (!hardwareManager.isConnected) {
-            _uiState.update { it.copy(errorMessage = "串口未连接，无法发送继续制作指令") }
+            // 模拟模式下也要关闭弹窗
+            _uiState.update { 
+                it.copy(
+                    showWeightChangeDialog = false,
+                    isInterrupted = false,
+                    interruptedRecipe = null,
+                    errorMessage = "模拟模式：继续制作"
+                ) 
+            }
             return
         }
         
@@ -287,7 +295,15 @@ class DrinkMenuViewModel(
     // 新增：重新制作
     fun onRestartRecipe() {
         if (!hardwareManager.isConnected) {
-            _uiState.update { it.copy(errorMessage = "串口未连接，无法发送重新制作指令") }
+            // 模拟模式下也要关闭弹窗
+            _uiState.update { 
+                it.copy(
+                    showWeightChangeDialog = false,
+                    isInterrupted = false,
+                    interruptedRecipe = null,
+                    errorMessage = "模拟模式：重新制作"
+                ) 
+            }
             return
         }
         
@@ -336,33 +352,24 @@ class DrinkMenuViewModel(
     // 添加恢复默认数据的函数
     fun restoreDefaultRecipes() {
         viewModelScope.launch {
-            // 强制插入或更新三种核心饮料
-            val coreRecipes = listOf(
-                Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1),
-                Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2),
-                Recipe(name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3)
-            )
-            
+            // 删除所有现有配方
             val existingRecipes = recipeRepository.allRecipes.first()
-            
-            coreRecipes.forEach { coreRecipe ->
-                val existing = existingRecipes.find { it.name == coreRecipe.name }
-                if (existing == null) {
-                    // 如果不存在，直接插入
-                    recipeRepository.insertRecipe(coreRecipe)
-                } else {
-                    // 如果存在，更新参数但保持库存
-                    val updatedRecipe = existing.copy(
-                        water = coreRecipe.water,
-                        juice = coreRecipe.juice,
-                        price = coreRecipe.price,
-                        juiceChannel = coreRecipe.juiceChannel
-                    )
-                    recipeRepository.updateRecipe(updatedRecipe)
-                }
+            existingRecipes.forEach { recipe ->
+                recipeRepository.deleteRecipe(recipe)
             }
             
-            _uiState.update { it.copy(errorMessage = "默认配方已恢复") }
+            // 重新插入默认的三种核心饮料
+            val defaultRecipes = listOf(
+                Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
+                Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2, imageUri = null),
+                Recipe(name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3, imageUri = null)
+            )
+            
+            defaultRecipes.forEach { recipe ->
+                recipeRepository.insertRecipe(recipe)
+            }
+            
+            _uiState.update { it.copy(errorMessage = "默认配方已恢复，新增配方已删除") }
         }
     }
 

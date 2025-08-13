@@ -163,7 +163,7 @@ fun DrinkMenuScreen(
         WeightChangeDialog(
             onContinue = onContinueRecipe,
             onRestart = onRestartRecipe,
-            onDismiss = { /* 可以添加取消逻辑 */ }
+            onDismiss = onContinueRecipe // 点击外部或确定按钮时关闭弹窗
         )
     }
 }
