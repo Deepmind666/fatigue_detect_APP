@@ -266,27 +266,12 @@ class DrinkMenuViewModel(
 
     // 新增：继续制作
     fun onContinueRecipe() {
-        if (!hardwareManager.isConnected) {
-            _uiState.update { 
-                it.copy(
-                    showWeightChangeDialog = false,
-                    isInterrupted = false,
-                    interruptedRecipe = null,
-                    errorMessage = "串口未连接，无法发送继续制作指令"
-                ) 
-            }
-            return
-        }
-        
-        // 发送继续制作指令
-        hardwareManager.sendContinueCommand()
-        
         _uiState.update { 
             it.copy(
                 showWeightChangeDialog = false,
                 isInterrupted = false,
                 interruptedRecipe = null,
-                errorMessage = "已发送继续制作指令"
+                errorMessage = "继续制作"
             ) 
         }
     }
@@ -298,31 +283,16 @@ class DrinkMenuViewModel(
         val cupSize = currentState.interruptedCupSize
         val withIce = currentState.interruptedWithIce
         
-        if (!hardwareManager.isConnected) {
-            _uiState.update { 
-                it.copy(
-                    showWeightChangeDialog = false,
-                    isInterrupted = false,
-                    interruptedRecipe = null,
-                    errorMessage = "串口未连接，无法发送重新制作指令"
-                ) 
-            }
-            return
-        }
-        
         if (recipe != null) {
             Log.d("DrinkMenuViewModel", "重新制作: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
         }
-        
-        // 发送重新制作指令
-        hardwareManager.sendRestartCommand()
         
         _uiState.update { 
             it.copy(
                 showWeightChangeDialog = false,
                 isInterrupted = false,
                 interruptedRecipe = null,
-                errorMessage = "已发送重新制作指令"
+                errorMessage = "重新制作"
             ) 
         }
     }
