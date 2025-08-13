@@ -250,6 +250,38 @@ class HardwareManager(
 
 
 
+    // 发送继续制作指令
+    fun sendContinueCommand() {
+        val command = byteArrayOf(
+            0xFF.toByte(),
+            0x07.toByte(),
+            0x00, 0x00, 0x00, 0x00,
+            0xFE.toByte()
+        )
+        
+        Log.d("HardwareManager", "发送继续制作指令: FF 07 00 00 00 00 FE")
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(context, "发送继续制作指令", Toast.LENGTH_SHORT).show()
+        }
+        sendCommand(command)
+    }
+
+    // 发送重新制作指令
+    fun sendRestartCommand() {
+        val command = byteArrayOf(
+            0xFF.toByte(),
+            0x08.toByte(),
+            0x00, 0x00, 0x00, 0x00,
+            0xFE.toByte()
+        )
+        
+        Log.d("HardwareManager", "发送重新制作指令: FF 08 00 00 00 00 FE")
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(context, "发送重新制作指令", Toast.LENGTH_SHORT).show()
+        }
+        sendCommand(command)
+    }
+
     override fun onRunError(e: Exception) {
         Log.e("HardwareManager", "Serial port run error", e)
     }
