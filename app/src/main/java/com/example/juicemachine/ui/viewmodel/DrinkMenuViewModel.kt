@@ -8,6 +8,7 @@ import com.example.juicemachine.R
 import com.example.juicemachine.data.database.CupConfig
 import com.example.juicemachine.data.database.Recipe
 import com.example.juicemachine.data.hardware.HardwareManager
+import com.example.juicemachine.data.hardware.WeightAnomalyData
 import com.example.juicemachine.data.repository.RecipeRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,6 +67,15 @@ class DrinkMenuViewModel(
         }
         hardwareManager.setOnStatusListener { msg ->
             _uiState.update { it.copy(connectionStatus = msg, errorMessage = if (msg.contains("未连接") || msg.contains("失败")) msg else null) }
+        }
+        hardwareManager.setOnWeightAnomalyListener { anomalyData ->
+            _uiState.update { 
+                it.copy(
+                    showWeightChangeDialog = true,
+                    isInterrupted = true,
+                    errorMessage = "检测到重量异常: 当前${anomalyData.currentWeight}g, 预期${anomalyData.expectedWeight}g"
+                ) 
+            }
         }
         hardwareManager.connect { status ->
             _uiState.update { it.copy(temperature = status) }
@@ -137,7 +147,7 @@ class DrinkMenuViewModel(
     }
 
     fun onLoginAttempt(password: String) {
-        if (password == "666666") {
+        if (password == "6") {
             _uiState.update { it.copy(showLoginDialog = false, navigateToAdmin = true) }
         } else {
             _uiState.update { it.copy(loginError = true) }
@@ -207,10 +217,26 @@ class DrinkMenuViewModel(
 
     fun saveRecipe(recipe: Recipe) {
         viewModelScope.launch {
-            if (recipe.id == 0) {
-                recipeRepository.insertRecipe(recipe)
-            } else {
-                recipeRepository.updateRecipe(recipe)
+            try {
+                // 获取当前选中的图片URI
+                val currentImageUri = _uiState.value.selectedImageUri?.toString()
+                val recipeWithImage = recipe.copy(imageUri = currentImageUri)
+                
+                if (recipeWithImage.id == 0) {
+                    recipeRepository.insertRecipe(recipeWithImage)
+                    Log.d("DrinkMenuViewModel", "新配方已保存: ${recipeWithImage.name}, 图片: $currentImageUri")
+                } else {
+                    recipeRepository.updateRecipe(recipeWithImage)
+                    Log.d("DrinkMenuViewModel", "配方已更新: ${recipeWithImage.name}, 图片: $currentImageUri")
+                }
+                
+                // 清除选中的图片
+                clearSelectedImage()
+                
+                _uiState.update { it.copy(errorMessage = "配方保存成功") }
+            } catch (e: Exception) {
+                Log.e("DrinkMenuViewModel", "保存配方失败: ${e.message}", e)
+                _uiState.update { it.copy(errorMessage = "保存失败: ${e.message}") }
             }
         }
     }
@@ -240,35 +266,89 @@ class DrinkMenuViewModel(
 
     // 新增：继续制作
     fun onContinueRecipe() {
-        val state = _uiState.value
-        state.interruptedRecipe?.let { recipe ->
-            onConfirmDialog(recipe, state.interruptedCupSize, state.interruptedWithIce)
+        if (!hardwareManager.isConnected) {
+            _uiState.update { 
+                it.copy(
+                    showWeightChangeDialog = false,
+                    isInterrupted = false,
+                    interruptedRecipe = null,
+                    errorMessage = "串口未连接，无法发送继续制作指令"
+                ) 
+            }
+            return
         }
+        
+        // 发送继续制作指令 (0x0A)
+        hardwareManager.sendContinueCommand()
+        
         _uiState.update { 
             it.copy(
                 showWeightChangeDialog = false,
                 isInterrupted = false,
-                interruptedRecipe = null
+                interruptedRecipe = null,
+                errorMessage = "已发送继续制作指令"
             ) 
         }
     }
 
     // 新增：重新制作
     fun onRestartRecipe() {
+        val currentState = _uiState.value
+        val recipe = currentState.interruptedRecipe
+        val cupSize = currentState.interruptedCupSize
+        val withIce = currentState.interruptedWithIce
+        
+        if (!hardwareManager.isConnected) {
+            _uiState.update { 
+                it.copy(
+                    showWeightChangeDialog = false,
+                    isInterrupted = false,
+                    interruptedRecipe = null,
+                    errorMessage = "串口未连接，无法重新制作"
+                ) 
+            }
+            return
+        }
+        
+        if (recipe == null) {
+            _uiState.update { 
+                it.copy(
+                    showWeightChangeDialog = false,
+                    isInterrupted = false,
+                    errorMessage = "没有找到中断的配方信息"
+                ) 
+            }
+            return
+        }
+        
+        // 重新发送上一次的制作指令
+        Log.d("DrinkMenuViewModel", "重新制作: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
+        hardwareManager.makeJuice(recipe, cupSize, withIce)
+        
         _uiState.update { 
             it.copy(
                 showWeightChangeDialog = false,
                 isInterrupted = false,
                 interruptedRecipe = null,
-                errorMessage = "请倒掉饮品并重新放置杯子！"
+                errorMessage = "已重新开始制作${recipe.name}，请倒掉之前的饮品并重新放置杯子！"
             ) 
         }
     }
 
     // 新增：图片选择处理
     fun onImageSelected(uri: android.net.Uri?) {
-        _uiState.update { it.copy(selectedImageUri = uri) }
-        Log.d("DrinkMenuViewModel", "图片已选择: $uri")
+        try {
+            _uiState.update { it.copy(selectedImageUri = uri) }
+            Log.d("DrinkMenuViewModel", "图片已选择: $uri")
+        } catch (e: Exception) {
+            Log.e("DrinkMenuViewModel", "图片选择处理失败: ${e.message}", e)
+            _uiState.update { 
+                it.copy(
+                    selectedImageUri = null,
+                    errorMessage = "图片处理失败，请重试"
+                )
+            }
+        }
     }
 
     // 新增：清除选中的图片
@@ -326,4 +406,4 @@ class DrinkMenuViewModelFactory(
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
-} 
+}

@@ -48,6 +48,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import com.example.juicemachine.R
 import androidx.compose.material3.ButtonColors
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
+import android.util.Log
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -230,12 +234,33 @@ fun RecipeRow(
                 shape = RoundedCornerShape(12.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
-                Image(
-                    painter = painterResource(id = getDrawableForRecipe(recipe.name)),
-                    contentDescription = recipe.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
+                
+                if (!recipe.imageUri.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(recipe.imageUri)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = recipe.name,
+                        modifier = Modifier
+                            .size(80.dp),
+                        contentScale = ContentScale.Crop,
+                        error = defaultPainter,
+                        fallback = defaultPainter,
+                        onError = { error ->
+                             Log.d("AdminScreen", "Image load error for ${recipe.name}: ${error.result.throwable.message}")
+                         }
+                    )
+                } else {
+                    Image(
+                        painter = defaultPainter,
+                        contentDescription = recipe.name,
+                        modifier = Modifier
+                            .size(80.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.width(16.dp))
@@ -307,9 +332,9 @@ private fun getDrawableForRecipe(recipeName: String): Int {
 @Composable
 fun AdminScreenPreview() {
     val previewRecipes = listOf(
-        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1),
-        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2),
-        Recipe(id = 3, name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3)
+        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
+        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2, imageUri = null),
+        Recipe(id = 3, name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3, imageUri = null)
     )
     JuiceMachineTheme {
         AdminScreen(
@@ -352,4 +377,4 @@ fun ActionButton(
     ) {
         Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
-} 
+}

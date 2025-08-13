@@ -40,6 +40,10 @@ import com.example.juicemachine.ui.viewmodel.DrinkMenuUiState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.animation.core.*
@@ -283,7 +287,7 @@ fun DrinkGrid(recipes: List<Recipe>, onRecipeSelected: (Recipe) -> Unit) {
 
 @Composable
 fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
-    val painter = painterResource(id = getDrawableForRecipe(recipe.name))
+    val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
 
     val isSoldOut = recipe.remainWeight < recipe.juice
     val isLowStock = !isSoldOut && (recipe.remainWeight / recipe.juice) in 1..3
@@ -304,14 +308,32 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
         Box(
             modifier = Modifier.aspectRatio(0.85f) // 调整比例以更好适应图片比例
         ) {
-            // Background Image - 直接显示图片，无背景
-            Image(
-                painter = painter,
-                contentDescription = recipe.name,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit, // 使用Fit确保图片完整显示
-                alpha = if (isSoldOut) 0.3f else 1.0f
-            )
+            // Background Image - 优先显示保存的图片，否则显示默认图片
+            if (!recipe.imageUri.isNullOrEmpty()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(recipe.imageUri)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = recipe.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = if (isSoldOut) 0.3f else 1.0f,
+                    error = defaultPainter,
+                    fallback = defaultPainter,
+                    onError = { error ->
+                        Log.d("DrinkCard", "Image load error for ${recipe.name}: ${error.result.throwable.message}")
+                    }
+                )
+            } else {
+                Image(
+                    painter = defaultPainter,
+                    contentDescription = recipe.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                    alpha = if (isSoldOut) 0.3f else 1.0f
+                )
+            }
 
             if (isSoldOut) {
                 // 售罄遮罩
@@ -758,54 +780,153 @@ fun WeightChangeDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { 
-            Text(
-                "检测到杯子被移动",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            ) 
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 6.dp,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "警告",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(32.dp)
+                )
+                Text(
+                    text = "检测到杯子被移动",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         },
-        text = { 
-            Text(
-                "制作过程中检测到重量变化，请选择操作：",
-                style = MaterialTheme.typography.bodyMedium
-            ) 
+        text = {
+            Column(
+                modifier = Modifier.padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "制作过程中检测到重量变化，请选择操作：",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = 16.sp,
+                        lineHeight = 24.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "提示",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "请倒掉饮品并重新放置杯子！",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            ),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
         },
         confirmButton = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Button(
                     onClick = onContinue,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = Color(0xFFFF9800),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 2.dp,
+                        pressedElevation = 4.dp
                     )
                 ) {
-                    Text("继续制作", fontWeight = FontWeight.Bold)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "继续",
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "继续制作",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        )
+                    }
                 }
+                
                 Button(
                     onClick = onRestart,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
+                        containerColor = Color(0xFF4CAF50),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 2.dp,
+                        pressedElevation = 4.dp
                     )
                 ) {
-                    Text("重新制作", fontWeight = FontWeight.Bold)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "重新制作",
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "重新制作",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        )
+                    }
                 }
             }
         },
-        dismissButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Text("取消")
-            }
-        }
+        dismissButton = null
     )
 }
 
@@ -813,9 +934,9 @@ fun WeightChangeDialog(
 @Composable
 fun DrinkMenuScreenPreview() {
     val previewRecipes = listOf(
-        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1),
-        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 3, juiceChannel = 2),
-        Recipe(id = 3, name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 0, juiceChannel = 3)
+        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
+        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 3, juiceChannel = 2, imageUri = null),
+        Recipe(id = 3, name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 0, juiceChannel = 3, imageUri = null)
     )
     JuiceMachineTheme {
         DrinkMenuScreen(
@@ -831,4 +952,4 @@ fun DrinkMenuScreenPreview() {
             onRestartRecipe = {}
         )
     }
-} 
+}

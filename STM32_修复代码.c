@@ -7,6 +7,72 @@
 #include "PWM.h"
 #include "Gra_Com.h"
 
+// 重量异常状态码定义
+#define WEIGHT_STATUS_NORMAL    0x00
+#define WEIGHT_STATUS_LIGHT     0x01  // 轻微异常 (>100g)
+#define WEIGHT_STATUS_MODERATE  0x02  // 明显异常 (30-100g)
+#define WEIGHT_STATUS_SEVERE    0x03  // 严重异常 (10-30g)
+#define WEIGHT_STATUS_REMOVED   0x04  // 杯子移除 (<10g)
+
+// 全局变量
+float baseline_weight = 0.0;      // 基准重量
+float current_weight = 0.0;       // 当前重量
+uint8_t making_juice = 0;         // 制作状态标志
+uint8_t simulate_weight_change = 0; // 模拟重量变化标志（用于串口调试）
+
+// 重量异常检测函数（模拟版本，用于串口调试）
+uint8_t CheckWeightAnomaly(void) {
+    if (!making_juice) return WEIGHT_STATUS_NORMAL;
+    
+    // 在实际环境中，这里会读取HX711传感器
+    // current_weight = HX711_Get_Weight();
+    
+    // 串口调试模式：模拟重量变化
+    if (simulate_weight_change) {
+        static uint8_t anomaly_counter = 0;
+        anomaly_counter++;
+        
+        // 模拟不同类型的异常
+        switch(anomaly_counter % 4) {
+            case 1: 
+                current_weight = baseline_weight + 150; // 模拟轻微异常
+                return WEIGHT_STATUS_LIGHT;
+            case 2:
+                current_weight = baseline_weight + 50;  // 模拟明显异常
+                return WEIGHT_STATUS_MODERATE;
+            case 3:
+                current_weight = baseline_weight + 15;  // 模拟严重异常
+                return WEIGHT_STATUS_SEVERE;
+            case 0:
+                current_weight = 5.0;  // 模拟杯子移除
+                return WEIGHT_STATUS_REMOVED;
+        }
+    }
+    
+    return WEIGHT_STATUS_NORMAL;
+}
+
+// 发送重量异常指令
+void SendWeightAnomalyCommand(uint8_t status_code) {
+    uint8_t command[7];
+    command[0] = 0xFF;
+    command[1] = 0x09;  // 重量异常指令码
+    command[2] = status_code;  // 状态码
+    command[3] = (uint8_t)((uint16_t)current_weight & 0xFF);  // 当前重量低字节
+    command[4] = (uint8_t)((uint16_t)current_weight >> 8);    // 当前重量高字节
+    command[5] = 0x00;  // 预留字节
+    command[6] = 0xFE;
+    
+    // 发送到安卓端
+    Serial_SendArray(command, 7);
+    
+    // 调试输出
+    Serial2_Printf("Weight Anomaly Detected! Status: 0x%02X, Weight: %.1fg\r\n", 
+                   status_code, current_weight);
+    Serial2_Printf("Sent command: FF 09 %02X %02X %02X 00 FE\r\n", 
+                   status_code, command[3], command[4]);
+}
+
 // 7字节协议处理函数
 void ProcessCommand(void)
 {
@@ -50,6 +116,25 @@ void ProcessCommand(void)
                         Serial2_Printf("Executing: Test Make\r\n");
                         // TODO: 实现测试制作逻辑
                         // Motor_TestMake();
+                        break;
+                        
+                    case 0x05: // 测试重量异常（串口调试专用）
+                        Serial2_Printf("Executing: Test Weight Anomaly\r\n");
+                        simulate_weight_change = 1;  // 启用重量变化模拟
+                        baseline_weight = 200.0;     // 设置基准重量
+                        making_juice = 1;            // 设置制作状态
+                        
+                        // 立即触发一次重量异常检测
+                        uint8_t anomaly = CheckWeightAnomaly();
+                        if (anomaly != WEIGHT_STATUS_NORMAL) {
+                            SendWeightAnomalyCommand(anomaly);
+                        }
+                        break;
+                        
+                    case 0x06: // 停止重量异常测试
+                        Serial2_Printf("Executing: Stop Weight Test\r\n");
+                        simulate_weight_change = 0;
+                        making_juice = 0;
                         break;
                         
                     default:
@@ -103,10 +188,24 @@ void MakeJuice(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3, ui
 {
     Serial2_Printf("Starting juice making process...\r\n");
     
+    // 开始制作，记录基准重量
+    making_juice = 1;
+    baseline_weight = 200.0; // 模拟基准重量（实际应该读取HX711）
+    Serial2_Printf("Baseline weight set to: %.1fg\r\n", baseline_weight);
+    
     // 1. 根据冰块选择调整水量
     if(withIce) {
         Serial2_Printf("Adding ice...\r\n");
         // TODO: 添加冰块逻辑
+        
+        // 模拟重量检测
+        Delay_ms(500);
+        uint8_t anomaly = CheckWeightAnomaly();
+        if (anomaly != WEIGHT_STATUS_NORMAL) {
+            SendWeightAnomalyCommand(anomaly);
+            making_juice = 0;
+            return; // 中断制作
+        }
     }
     
     // 2. 加水
@@ -114,6 +213,15 @@ void MakeJuice(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3, ui
         Serial2_Printf("Adding water: %dg\r\n", water);
         // TODO: 控制水泵加水
         // Motor_AddWater(water);
+        
+        // 模拟加水过程中的重量检测
+        Delay_ms(1000);
+        uint8_t anomaly = CheckWeightAnomaly();
+        if (anomaly != WEIGHT_STATUS_NORMAL) {
+            SendWeightAnomalyCommand(anomaly);
+            making_juice = 0;
+            return; // 中断制作
+        }
     }
     
     // 3. 加果汁 - 通道1 (茉莉雪芽)
@@ -121,6 +229,14 @@ void MakeJuice(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3, ui
         Serial2_Printf("Adding juice from channel 1: %dg\r\n", juice1);
         // TODO: 控制通道1果汁泵
         // Motor_AddJuice(1, juice1);
+        
+        Delay_ms(800);
+        uint8_t anomaly = CheckWeightAnomaly();
+        if (anomaly != WEIGHT_STATUS_NORMAL) {
+            SendWeightAnomalyCommand(anomaly);
+            making_juice = 0;
+            return;
+        }
     }
     
     // 4. 加果汁 - 通道2 (柳橙百香)
@@ -128,6 +244,14 @@ void MakeJuice(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3, ui
         Serial2_Printf("Adding juice from channel 2: %dg\r\n", juice2);
         // TODO: 控制通道2果汁泵
         // Motor_AddJuice(2, juice2);
+        
+        Delay_ms(800);
+        uint8_t anomaly = CheckWeightAnomaly();
+        if (anomaly != WEIGHT_STATUS_NORMAL) {
+            SendWeightAnomalyCommand(anomaly);
+            making_juice = 0;
+            return;
+        }
     }
     
     // 5. 加果汁 - 通道3 (满杯桑葚)
@@ -135,6 +259,14 @@ void MakeJuice(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3, ui
         Serial2_Printf("Adding juice from channel 3: %dg\r\n", juice3);
         // TODO: 控制通道3果汁泵
         // Motor_AddJuice(3, juice3);
+        
+        Delay_ms(800);
+        uint8_t anomaly = CheckWeightAnomaly();
+        if (anomaly != WEIGHT_STATUS_NORMAL) {
+            SendWeightAnomalyCommand(anomaly);
+            making_juice = 0;
+            return;
+        }
     }
     
     // 6. 搅拌
@@ -142,7 +274,16 @@ void MakeJuice(uint8_t water, uint8_t juice1, uint8_t juice2, uint8_t juice3, ui
     // TODO: 控制搅拌器
     // Motor_Mix();
     
+    Delay_ms(1500);
+    uint8_t anomaly = CheckWeightAnomaly();
+    if (anomaly != WEIGHT_STATUS_NORMAL) {
+        SendWeightAnomalyCommand(anomaly);
+        making_juice = 0;
+        return;
+    }
+    
     Serial2_Printf("Juice making completed!\r\n");
+    making_juice = 0; // 制作完成
     
     // 7. 发送完成信号给Android
     Serial_Printf("MAKE_COMPLETE\r\n");
@@ -226,4 +367,4 @@ void Motor_Clean(void) {
     Motor_Mix();          // 搅拌
     // 排水等操作...
 }
-*/ 
+*/

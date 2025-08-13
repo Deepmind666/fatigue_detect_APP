@@ -18,6 +18,18 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.widget.Toast
 
+// 重量异常数据类
+data class WeightAnomalyData(
+    val currentWeight: Int,
+    val expectedWeight: Int,
+    val severity: WeightAnomalySeverity,
+    val timestamp: Long
+)
+
+enum class WeightAnomalySeverity {
+    LOW, MEDIUM, HIGH
+}
+
 class HardwareManager(
     private val context: Context,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -29,9 +41,14 @@ class HardwareManager(
     var isConnected: Boolean = false
         private set
     private var onStatusListener: ((String) -> Unit)? = null
+    private var onWeightAnomalyListener: ((WeightAnomalyData) -> Unit)? = null
 
     fun setOnStatusListener(listener: (String) -> Unit) {
         onStatusListener = listener
+    }
+
+    fun setOnWeightAnomalyListener(listener: (WeightAnomalyData) -> Unit) {
+        onWeightAnomalyListener = listener
     }
 
     companion object {
@@ -143,6 +160,38 @@ class HardwareManager(
         sendCommand(command)
     }
 
+    // 发送继续制作指令 (0x0A)
+    fun sendContinueCommand() {
+        val command = byteArrayOf(
+            0xFF.toByte(),
+            0x0A.toByte(),
+            0x00, 0x00, 0x00, 0x00,
+            0xFE.toByte()
+        )
+
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(context, "发送继续制作指令 (0x0A)", Toast.LENGTH_SHORT).show()
+        }
+        Log.d("HardwareManager", "发送继续制作指令: 0x0A")
+        sendCommand(command)
+    }
+
+    // 发送重新制作指令 (0x0B)
+    fun sendRestartCommand() {
+        val command = byteArrayOf(
+            0xFF.toByte(),
+            0x0B.toByte(),
+            0x00, 0x00, 0x00, 0x00,
+            0xFE.toByte()
+        )
+
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(context, "发送重新制作指令 (0x0B)", Toast.LENGTH_SHORT).show()
+        }
+        Log.d("HardwareManager", "发送重新制作指令: 0x0B")
+        sendCommand(command)
+    }
+
     private fun sendCommand(data: ByteArray) {
         if (serialPort == null || !isConnected) {
             Log.e("HardwareManager", "Serial port not available.")
@@ -184,10 +233,57 @@ class HardwareManager(
     }
 
     override fun onNewData(data: ByteArray) {
-        // Handle incoming data if needed
+        // 处理接收到的数据
+        if (data.isNotEmpty()) {
+            val hexString = data.joinToString(separator = " ") { "%02X".format(it) }
+            Log.d("HardwareManager", "接收到数据: $hexString")
+            
+            // 检查是否是重量异常指令 (0x09)
+            if (data.size >= 7 && data[0] == 0xFF.toByte() && data[1] == 0x09.toByte() && data[6] == 0xFE.toByte()) {
+                parseWeightAnomalyData(data)
+            }
+        }
+    }
+
+    private fun parseWeightAnomalyData(data: ByteArray) {
+        try {
+            // 解析重量异常数据
+            // data[2] = 当前重量低字节
+            // data[3] = 当前重量高字节  
+            // data[4] = 预期重量低字节
+            // data[5] = 预期重量高字节
+            
+            val currentWeight = ((data[3].toInt() and 0xFF) shl 8) or (data[2].toInt() and 0xFF)
+            val expectedWeight = ((data[5].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)
+            
+            val weightDifference = kotlin.math.abs(currentWeight - expectedWeight)
+            val severity = when {
+                weightDifference > 100 -> WeightAnomalySeverity.HIGH
+                weightDifference > 50 -> WeightAnomalySeverity.MEDIUM
+                else -> WeightAnomalySeverity.LOW
+            }
+            
+            val anomalyData = WeightAnomalyData(
+                currentWeight = currentWeight,
+                expectedWeight = expectedWeight,
+                severity = severity,
+                timestamp = System.currentTimeMillis()
+            )
+            
+            Log.d("HardwareManager", "重量异常检测: 当前=${currentWeight}g, 预期=${expectedWeight}g, 差值=${weightDifference}g, 严重程度=${severity}")
+            
+            // 通知UI层显示重量异常弹窗
+            scope.launch(Dispatchers.Main) {
+                onWeightAnomalyListener?.invoke(anomalyData)
+                Toast.makeText(context, "检测到重量异常: 当前${currentWeight}g, 预期${expectedWeight}g", Toast.LENGTH_LONG).show()
+            }
+            
+        } catch (e: Exception) {
+            Log.e("HardwareManager", "解析重量异常数据失败", e)
+        }
     }
 
     override fun onRunError(e: Exception) {
         Log.e("HardwareManager", "Serial port run error", e)
     }
-} 
+}

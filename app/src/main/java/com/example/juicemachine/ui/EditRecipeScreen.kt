@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import android.util.Log
 import com.example.juicemachine.R
 import com.example.juicemachine.data.database.CupConfig
 import com.example.juicemachine.data.database.Recipe
@@ -69,12 +70,27 @@ fun EditRecipeScreen(
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        onImageSelected(uri)
+        try {
+            if (uri != null) {
+                Log.d("EditRecipeScreen", "图片选择成功: $uri")
+                onImageSelected(uri)
+            } else {
+                Log.d("EditRecipeScreen", "用户取消了图片选择")
+            }
+        } catch (e: Exception) {
+            Log.e("EditRecipeScreen", "图片选择处理失败: ${e.message}", e)
+            onImageSelected(null)
+        }
     }
 
     // 状态管理
     var showCropDialog by remember { mutableStateOf(false) }
     var showScaleDialog by remember { mutableStateOf(false) }
+    
+    // 调试日志
+    LaunchedEffect(selectedImageUri) {
+        Log.d("EditRecipeScreen", "selectedImageUri changed: $selectedImageUri")
+    }
 
     Scaffold(
         topBar = {
@@ -125,24 +141,38 @@ fun EditRecipeScreen(
                             .fillMaxWidth()
                             .height(180.dp)
                             .clickable {
-                                imagePickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
+                                Log.d("EditRecipeScreen", "点击选择图片区域，启动图片选择器")
+                                try {
+                                    imagePickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                    Log.d("EditRecipeScreen", "图片选择器启动成功")
+                                } catch (e: Exception) {
+                                    Log.e("EditRecipeScreen", "启动图片选择器失败: ${e.message}", e)
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (selectedImageUri != null) {
+                        // 优先显示新选择的图片，其次显示已保存的图片
+                        val imageToShow = selectedImageUri ?: recipe.imageUri?.let { Uri.parse(it) }
+                        
+                        if (imageToShow != null) {
                             // 显示选中的图片 - 使用自适应缩放
                             AsyncImage(
                                 model = ImageRequest.Builder(LocalContext.current)
-                                    .data(selectedImageUri)
+                                    .data(imageToShow)
                                     .crossfade(true)
+                                    .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                    .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                                     .build(),
                                 contentDescription = "饮品图片",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop, // 使用Crop确保填充整个区域
                                 onSuccess = { _ ->
-                                    // 可以在这里获取图片尺寸信息
+                                    Log.d("EditRecipeScreen", "图片加载成功: $imageToShow")
+                                },
+                                onError = { error ->
+                                    Log.e("EditRecipeScreen", "图片加载失败: ${error.result.throwable.message}")
                                 }
                             )
                         } else {
@@ -190,9 +220,15 @@ fun EditRecipeScreen(
                         ) {
                             IconButton(
                                 onClick = {
-                                    imagePickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
+                                    Log.d("EditRecipeScreen", "点击图片选择按钮")
+                                    try {
+                                        imagePickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                        Log.d("EditRecipeScreen", "图片选择器启动成功")
+                                    } catch (e: Exception) {
+                                        Log.e("EditRecipeScreen", "启动图片选择器失败: ${e.message}", e)
+                                    }
                                 }
                             ) {
                                 Icon(
@@ -214,6 +250,7 @@ fun EditRecipeScreen(
                             ) {
                                 IconButton(
                                     onClick = {
+                                        Log.d("EditRecipeScreen", "点击裁剪按钮，selectedImageUri: $selectedImageUri")
                                         showCropDialog = true
                                     }
                                 ) {
@@ -237,6 +274,7 @@ fun EditRecipeScreen(
                             ) {
                                 IconButton(
                                     onClick = {
+                                        Log.d("EditRecipeScreen", "点击缩放按钮，selectedImageUri: $selectedImageUri")
                                         showScaleDialog = true
                                     }
                                 ) {
@@ -376,12 +414,14 @@ private fun getDrawableForRecipe(recipeName: String): Int {
     }
 }
 
+
+
 @Preview(showBackground = true)
 @Composable
 fun EditRecipeScreenPreview() {
     JuiceMachineTheme {
         EditRecipeScreen(
-            recipe = Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1),
+            recipe = Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
             onNameChange = {},
             onWaterChange = {},
             onJuiceChange = {},
@@ -394,4 +434,4 @@ fun EditRecipeScreenPreview() {
             selectedImageUri = null
         )
     }
-} 
+}

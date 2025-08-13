@@ -28,6 +28,19 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
             .components {
                 add(SvgDecoder.Factory())
             }
+            .memoryCache {
+                coil.memory.MemoryCache.Builder(this)
+                    .maxSizePercent(0.25) // 使用25%的可用内存
+                    .build()
+            }
+            .diskCache {
+                coil.disk.DiskCache.Builder()
+                    .directory(this.cacheDir.resolve("image_cache"))
+                    .maxSizePercent(0.02) // 使用2%的磁盘空间
+                    .build()
+            }
+            .respectCacheHeaders(false)
+            .allowHardware(false) // 禁用硬件位图以避免某些设备上的崩溃
             .build()
     }
-} 
+}

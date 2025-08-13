@@ -17,5 +17,7 @@ data class Recipe(
     val price: Int,
     // 果汁剩余重量（g）
     val remainWeight: Int,
-    val juiceChannel: Int
+    val juiceChannel: Int,
+    // 图片URI字符串
+    val imageUri: String? = null
 )
