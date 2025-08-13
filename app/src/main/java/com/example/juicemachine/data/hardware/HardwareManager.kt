@@ -223,9 +223,23 @@ class HardwareManager(
                         Toast.makeText(context, "饮品制作完成", Toast.LENGTH_LONG).show()
                     }
                 }
-                // 检查是否为重量异常指令 (0x09)
-                data.size >= 7 && data[0] == 0xFF.toByte() && data[1] == 0x09.toByte() && data[6] == 0xFE.toByte() -> {
-                    parseWeightAnomalyData(data)
+                // 检查是否为重量异常指令 FF 09 00 00 00 00 FE
+                data.size == 7 && 
+                data[0] == 0xFF.toByte() && data[1] == 0x09.toByte() && 
+                data[2] == 0x00.toByte() && data[3] == 0x00.toByte() && 
+                data[4] == 0x00.toByte() && data[5] == 0x00.toByte() && 
+                data[6] == 0xFE.toByte() -> {
+                    // 收到固定的重量异常指令，直接触发弹窗
+                    Log.d("HardwareManager", "收到重量异常指令: FF 09 00 00 00 00 FE")
+                    scope.launch(Dispatchers.Main) {
+                        onWeightAnomalyListener?.invoke(WeightAnomalyData(
+                            currentWeight = 0,
+                            expectedWeight = 0,
+                            severity = WeightAnomalySeverity.MEDIUM,
+                            timestamp = System.currentTimeMillis()
+                        ))
+                        Toast.makeText(context, "检测到重量异常", Toast.LENGTH_LONG).show()
+                    }
                 }
                 else -> {
                     Log.d("HardwareManager", "收到未知数据: $textResponse")
@@ -234,45 +248,37 @@ class HardwareManager(
         }
     }
 
-    private fun parseWeightAnomalyData(data: ByteArray) {
-        try {
-            // 解析重量异常数据
-            // data[2] = 当前重量低字节
-            // data[3] = 当前重量高字节  
-            // data[4] = 预期重量低字节
-            // data[5] = 预期重量高字节
-            
-            val currentWeight = ((data[3].toInt() and 0xFF) shl 8) or (data[2].toInt() and 0xFF)
-            val expectedWeight = ((data[5].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)
-            
-            val weightDifference = kotlin.math.abs(currentWeight - expectedWeight)
-            val severity = when {
-                weightDifference > 100 -> WeightAnomalySeverity.HIGH
-                weightDifference > 50 -> WeightAnomalySeverity.MEDIUM
-                else -> WeightAnomalySeverity.LOW
-            }
-            
-            val anomalyData = WeightAnomalyData(
-                currentWeight = currentWeight,
-                expectedWeight = expectedWeight,
-                severity = severity,
-                timestamp = System.currentTimeMillis()
-            )
-            
-            Log.d("HardwareManager", "重量异常检测: 当前=${currentWeight}g, 预期=${expectedWeight}g, 差值=${weightDifference}g, 严重程度=${severity}")
-            
-            // 通知UI层显示重量异常弹窗
-            scope.launch(Dispatchers.Main) {
-                onWeightAnomalyListener?.invoke(anomalyData)
-                Toast.makeText(context, "检测到重量异常: 当前${currentWeight}g, 预期${expectedWeight}g", Toast.LENGTH_LONG).show()
-            }
-            
-        } catch (e: Exception) {
-            Log.e("HardwareManager", "解析重量异常数据失败", e)
+    // 发送继续制作指令
+    fun sendContinueCommand() {
+        val command = byteArrayOf(
+            0xFF.toByte(),
+            0x0A.toByte(),
+            0x00, 0x00, 0x00, 0x00,
+            0xFE.toByte()
+        )
+        
+        Log.d("HardwareManager", "发送继续制作指令: FF 0A 00 00 00 00 FE")
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(context, "发送继续制作指令", Toast.LENGTH_SHORT).show()
         }
+        sendCommand(command)
     }
 
-
+    // 发送重新制作指令
+    fun sendRestartCommand() {
+        val command = byteArrayOf(
+            0xFF.toByte(),
+            0x0B.toByte(),
+            0x00, 0x00, 0x00, 0x00,
+            0xFE.toByte()
+        )
+        
+        Log.d("HardwareManager", "发送重新制作指令: FF 0B 00 00 00 00 FE")
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(context, "发送重新制作指令", Toast.LENGTH_SHORT).show()
+        }
+        sendCommand(command)
+    }
 
     override fun onRunError(e: Exception) {
         Log.e("HardwareManager", "Serial port run error", e)
