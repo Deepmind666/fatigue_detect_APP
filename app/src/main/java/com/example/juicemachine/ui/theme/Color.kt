@@ -11,7 +11,7 @@ val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
 // 果然新鲜品牌色彩
-val FreshOrange = Color(0xFFFF9800)   // 主要橙色 - 新鲜果汁
+val FreshOrange = Color(0xFFFF6D00)   // 主要橙色 - 新鲜果汁
 val FreshGreen = Color(0xFF4CAF50)    // 新鲜绿色 - 健康活力
 val FreshYellow = Color(0xFFFFC107)   // 柠檬黄色 - 酸甜清新
 val FreshRed = Color(0xFFE91E63)      // 浆果红色 - 浓郁果香
@@ -36,4 +36,4 @@ val TeaBrown = Color(0xFF8D6E63)      // 保持茶褐色用于某些UI元素
 val TeaGold = FreshYellow
 val TeaCream = FreshCream
 val DeepTea = DeepFruit
-val LightTea = LightFruit 
+val LightTea = LightFruit

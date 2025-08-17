@@ -40,7 +40,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextOverflow
 
 private fun getDrawableForRecipe(recipeName: String): Int {
@@ -193,10 +196,7 @@ fun Header(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "🍊",
-                            fontSize = 18.sp // 减小emoji大小
-                        )
+                        LogoIcon(modifier = Modifier.size(18.dp))
                     }
                 }
                 
@@ -380,7 +380,7 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
                         val stockRatio = (recipe.remainWeight.toFloat() / (recipe.juice * 10)).coerceIn(0f, 1f)
                         val stockColor = when {
                             stockRatio >= 0.5f -> Color(0xFF4CAF50) // 绿色
-                            stockRatio >= 0.1f -> Color(0xFFFF9800) // 橙色
+                            stockRatio >= 0.1f -> MaterialTheme.colorScheme.primary // 橙色
                             else -> Color(0xFFF44336) // 红色
                         }
                         
@@ -706,6 +706,53 @@ fun JuiceCustomizationDialog(
     }
 }
 
+
+
+@Composable
+fun LogoIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val r = size.minDimension / 2f
+        // Orange body with radial gradient
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0xFFFFA726), Color(0xFFFF6D00)),
+                center = center,
+                radius = r
+            ),
+            radius = r * 0.95f,
+            center = center
+        )
+        // Small highlight
+        drawCircle(
+            color = Color.White.copy(alpha = 0.25f),
+            radius = r * 0.22f,
+            center = Offset(center.x - r * 0.35f, center.y - r * 0.35f)
+        )
+        // Leaf
+        val leafWidth = r * 0.9f
+        val leafHeight = r * 0.5f
+        val leafTop = Offset(center.x + r * 0.1f, center.y - r * 0.95f)
+        val leafPath = Path().apply {
+            moveTo(leafTop.x, leafTop.y)
+            cubicTo(
+                leafTop.x + leafWidth * 0.2f, leafTop.y + leafHeight * 0.1f,
+                leafTop.x + leafWidth * 0.7f, leafTop.y + leafHeight * 0.2f,
+                leafTop.x + leafWidth, leafTop.y + leafHeight
+            )
+            cubicTo(
+                leafTop.x + leafWidth * 0.6f, leafTop.y + leafHeight * 0.6f,
+                leafTop.x + leafWidth * 0.2f, leafTop.y + leafHeight * 0.5f,
+                leafTop.x, leafTop.y
+            )
+            close()
+        }
+        drawPath(
+            path = leafPath,
+            color = Color(0xFF43A047)
+        )
+    }
+}
+
 @Composable
 fun LoginDialog(
     isError: Boolean,
@@ -845,7 +892,7 @@ fun WeightChangeDialog(
                         .weight(1f)
                         .height(52.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFF9800),
+                        containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp),
@@ -879,7 +926,7 @@ fun WeightChangeDialog(
                         .weight(1f)
                         .height(52.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4CAF50),
+                        containerColor = MaterialTheme.colorScheme.secondary,
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp),
@@ -934,3 +981,5 @@ fun DrinkMenuScreenPreview() {
         )
     }
 }
+
+// Remove duplicated preview at end
