@@ -80,7 +80,12 @@ class MainActivity : ComponentActivity() {
         }
         // 注册USB权限广播接收器，action统一
         val filter = IntentFilter(HardwareManager.USB_PERMISSION_ACTION)
-        registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(usbPermissionReceiver, filter)
+        }
     }
 
     private fun checkAndRequestPermissions() {
@@ -117,6 +122,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        unregisterReceiver(usbPermissionReceiver)
+        try {
+            unregisterReceiver(usbPermissionReceiver)
+        } catch (_: Exception) { }
     }
 }

@@ -63,8 +63,6 @@ fun AdminScreen(
     onDeleteRecipe: (Recipe) -> Unit,
     onClean: () -> Unit,
     onStop: () -> Unit,
-    onTare: () -> Unit,
-    onWeigh: () -> Unit,
     onNavigateBack: () -> Unit,
     onDismissError: () -> Unit = {},
     onRestoreDefaults: () -> Unit = {}
@@ -142,7 +140,7 @@ fun AdminScreen(
                                 isPrimary = true
                             )
                             ActionButton(
-                                text = "紧急停止",
+                                text = "清洗停止",
                                 onClick = onStop,
                                 modifier = Modifier.weight(1f),
                                 isPrimary = true // 修改为 true，与“一键清洗”保持一致
@@ -151,26 +149,7 @@ fun AdminScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Second row of buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            ActionButton(
-                                text = "去皮",
-                                onClick = onTare,
-                                modifier = Modifier.weight(1f),
-                                isPrimary = true
-                            )
-                            ActionButton(
-                                text = "称重",
-                                onClick = onWeigh,
-                                modifier = Modifier.weight(1f),
-                                isPrimary = true
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         // Third row - Restore button
                         Row(
@@ -344,8 +323,6 @@ fun AdminScreenPreview() {
             onDeleteRecipe = {},
             onClean = {},
             onStop = {},
-            onTare = {},
-            onWeigh = {},
             onNavigateBack = {},
             onDismissError = {},
             onRestoreDefaults = {}

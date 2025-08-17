@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -15,12 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -29,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.example.juicemachine.R
 import com.example.juicemachine.data.database.CupConfig
@@ -46,12 +41,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.animation.core.*
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.text.style.TextOverflow
 
 private fun getDrawableForRecipe(recipeName: String): Int {
@@ -64,6 +53,7 @@ private fun getDrawableForRecipe(recipeName: String): Int {
 }
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun DrinkMenuScreen(
     uiState: DrinkMenuUiState,
     onRecipeClick: (Recipe) -> Unit,
@@ -72,33 +62,20 @@ fun DrinkMenuScreen(
     onConfirmDialog: (Recipe, String, Boolean) -> Unit,
     onLoginAttempt: (String) -> Unit,
     onDismissError: () -> Unit,
-    onSimulateWeightChange: () -> Unit,  // 新增
     onContinueRecipe: () -> Unit,         // 新增
-    onRestartRecipe: () -> Unit           // 新增
+    onRestartRecipe: () -> Unit          // 新增
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            Header(
+                                     Header(
                 onLongClick = onHeaderLongClick,
                 temperature = uiState.temperature
             )
             DrinkGrid(
                 recipes = uiState.recipes,
-                onRecipeSelected = onRecipeClick
+                onRecipeSelected = onRecipeClick,
+                modifier = Modifier.weight(1f)
             )
-            
-            // 新增：测试按钮
-            Button(
-                onClick = onSimulateWeightChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.secondary
-                )
-            ) {
-                Text("模拟杯子移动检测", color = MaterialTheme.colorScheme.onSecondary)
-            }
         }
 
         // The bottom action buttons are removed as they will be moved to the Admin screen.
@@ -147,7 +124,13 @@ fun DrinkMenuScreen(
         )
     }
 
-    if (uiState.errorMessage != null) {
+    // 新增：重量变化弹窗 - 最高优先级
+    val showDialog = uiState.showWeightChangeDialog
+    // 删除临时调试日志
+    // android.util.Log.e("DrinkMenuScreen", "=== 检查弹窗状态: showWeightChangeDialog=$showDialog ===")
+    
+    // 其他错误消息弹窗 - 只在没有重量异常弹窗时显示
+    if (!showDialog && uiState.errorMessage != null) {
         AlertDialog(
             onDismissRequest = { onDismissError() },
             title = { Text("提示") },
@@ -158,14 +141,7 @@ fun DrinkMenuScreen(
         )
     }
     
-    // 新增：重量变化弹窗
-    if (uiState.showWeightChangeDialog) {
-        WeightChangeDialog(
-            onContinue = onContinueRecipe,
-            onRestart = onRestartRecipe,
-            onDismiss = onContinueRecipe // 点击外部或确定按钮时关闭弹窗
-        )
-    }
+    // 重量异常弹窗已在 AppNavigation 全局处理，这里不再重复显示或测试中断处理弹窗
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -177,6 +153,7 @@ fun Header(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 68.dp)
             .combinedClickable(
                 onClick = {},
                 onLongClick = onLongClick
@@ -198,7 +175,7 @@ fun Header(
                         )
                     )
                 )
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -206,7 +183,7 @@ fun Header(
             ) {
                 // 品牌logo区域
                 Card(
-                    modifier = Modifier.size(36.dp), // 进一步减小logo尺寸
+                    modifier = Modifier.size(30.dp),
                     shape = RoundedCornerShape(8.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = Color.White.copy(alpha = 0.2f)
@@ -223,7 +200,7 @@ fun Header(
                     }
                 }
                 
-                Spacer(modifier = Modifier.width(12.dp)) // 减少间距
+                Spacer(modifier = Modifier.width(8.dp))
                 
                 // 品牌名称
                 Column(
@@ -232,14 +209,14 @@ fun Header(
                     Text(
                         text = "果然新鲜",
                         style = MaterialTheme.typography.headlineSmall,
-                        fontSize = 20.sp, // 减小字体
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
                         text = "FreshFruit",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontSize = 12.sp, // 减小字体
+                        fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.8f)
                     )
                 }
@@ -256,10 +233,10 @@ fun Header(
                     val displayTemp = if (temperature == "未连接" || temperature.isBlank()) "--°" else temperature
                     Text(
                         text = "温度: $displayTemp",
-                        fontSize = 14.sp, // 减小温度字体
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp) // 减少padding
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
             }
@@ -268,13 +245,16 @@ fun Header(
 }
 
 @Composable
-fun DrinkGrid(recipes: List<Recipe>, onRecipeSelected: (Recipe) -> Unit) {
+fun DrinkGrid(
+    recipes: List<Recipe>,
+    onRecipeSelected: (Recipe) -> Unit,
+    modifier: Modifier = Modifier
+) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3), // 固定3列，更适合平板屏幕
-        modifier = Modifier
+        columns = GridCells.Adaptive(minSize = 220.dp),
+        modifier = modifier
             .padding(horizontal = 8.dp, vertical = 6.dp)
-            .fillMaxWidth()
-            .height(400.dp), // 固定高度，为按钮留出空间
+            .fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 12.dp)
@@ -290,7 +270,8 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
     val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
 
     val isSoldOut = recipe.remainWeight < recipe.juice
-    val isLowStock = !isSoldOut && (recipe.remainWeight / recipe.juice) in 1..3
+    // 删除未使用变量 isLowStock
+    // val isLowStock = !isSoldOut && (recipe.remainWeight / recipe.juice) in 1..3
 
     Card(
         onClick = { onRecipeSelected(recipe) },
@@ -306,7 +287,7 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
         )
     ) {
         Box(
-            modifier = Modifier.aspectRatio(0.85f) // 调整比例以更好适应图片比例
+            modifier = Modifier.aspectRatio(0.75f)
         ) {
             // Background Image - 优先显示保存的图片，否则显示默认图片
             if (!recipe.imageUri.isNullOrEmpty()) {
@@ -703,8 +684,8 @@ fun JuiceCustomizationDialog(
                     // 确认按钮
                     Button(
                         onClick = { 
-                            // 添加调试信息
-                            Log.d("JuiceCustomizationDialog", "确认制作: 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
+                            // 删除调试信息
+                            // Log.d("JuiceCustomizationDialog", "确认制作: 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
                             onConfirm(cupSize, withIce) 
                         },
                         modifier = Modifier.weight(1f),
@@ -773,13 +754,14 @@ fun LoginDialog(
 }
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun WeightChangeDialog(
     onContinue: () -> Unit,
     onRestart: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { /* 阻止点击外部关闭 */ },
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 6.dp,
         title = {
@@ -947,7 +929,6 @@ fun DrinkMenuScreenPreview() {
             onConfirmDialog = { _, _, _ -> },
             onLoginAttempt = {},
             onDismissError = {},
-            onSimulateWeightChange = {},
             onContinueRecipe = {},
             onRestartRecipe = {}
         )

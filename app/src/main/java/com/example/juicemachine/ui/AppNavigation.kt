@@ -1,5 +1,10 @@
 package com.example.juicemachine.ui
+import android.util.Log
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -10,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModel
+import com.example.juicemachine.ui.WeightChangeDialog
 
 sealed class Screen(val route: String) {
     object DrinkMenu : Screen("drink_menu")
@@ -21,6 +27,18 @@ sealed class Screen(val route: String) {
 fun AppNavigation(viewModel: DrinkMenuViewModel) {
     val navController = rememberNavController()
     val uiState by viewModel.uiState.collectAsState()
+    // 全局：无论在哪个页面都显示重量异常弹窗（NavHost 外层），统一使用自定义 WeightChangeDialog
+    // 避免重复弹两次，移除简单AlertDialog版本
+// 全局：无论在哪个页面都显示重量异常弹窗
+android.util.Log.e("AppNavigation", "=== 检查全局弹窗状态: showWeightChangeDialog=${uiState.showWeightChangeDialog} ===")
+if (uiState.showWeightChangeDialog) {
+    android.util.Log.e("AppNavigation", "=== 全局弹窗条件命中，显示完整WeightChangeDialog ===")
+    WeightChangeDialog(
+        onContinue = viewModel::onContinueRecipe,
+        onRestart = viewModel::onRestartRecipe,
+        onDismiss = viewModel::onContinueRecipe
+    )
+}
 
     if (uiState.navigateToAdmin) {
         LaunchedEffect(Unit) {
@@ -46,7 +64,6 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 onConfirmDialog = viewModel::onConfirmDialog,
                 onLoginAttempt = viewModel::onLoginAttempt,
                 onDismissError = viewModel::clearError,
-                onSimulateWeightChange = viewModel::onSimulateWeightChange,
                 onContinueRecipe = viewModel::onContinueRecipe,
                 onRestartRecipe = viewModel::onRestartRecipe
             )
@@ -60,8 +77,6 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
                 onDeleteRecipe = viewModel::deleteRecipe,
                 onClean = viewModel::onClean,
                 onStop = viewModel::onStopAction,
-                onTare = viewModel::onTare,
-                onWeigh = viewModel::onWeigh,
                 onNavigateBack = { navController.popBackStack() },
                 onDismissError = viewModel::clearError,
                 onRestoreDefaults = viewModel::restoreDefaultRecipes
@@ -88,4 +103,7 @@ fun AppNavigation(viewModel: DrinkMenuViewModel) {
             )
         }
     }
-} 
+}
+
+
+
