@@ -7,4 +7,6 @@
     -->
     <!-- IDs for CH340 -->
     <usb-device vendor-id="6790" product-id="29987" />
-</resources> 
+    <!-- IDs for Silicon Labs CP2102 -->
+    <usb-device vendor-id="4292" product-id="60000" />
+</resources>

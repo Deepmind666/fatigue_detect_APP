@@ -21,6 +21,7 @@ sealed class Screen(val route: String) {
     object DrinkMenu : Screen("drink_menu")
     object Admin : Screen("admin")
     object EditRecipe : Screen("edit_recipe")
+    object Statistics : Screen("statistics")
 }
 
 @Composable
@@ -79,7 +80,8 @@ if (uiState.showWeightChangeDialog) {
                 onStop = viewModel::onStopAction,
                 onNavigateBack = { navController.popBackStack() },
                 onDismissError = viewModel::clearError,
-                onRestoreDefaults = viewModel::restoreDefaultRecipes
+                onRestoreDefaults = viewModel::restoreDefaultRecipes,
+                onNavigateToStatistics = { navController.navigate(Screen.Statistics.route) }
             )
         }
         composable(Screen.EditRecipe.route) {
@@ -100,6 +102,11 @@ if (uiState.showWeightChangeDialog) {
                 },
                 onImageSelected = viewModel::onImageSelected,
                 selectedImageUri = uiState.selectedImageUri
+            )
+        }
+        composable(Screen.Statistics.route) {
+            StatisticsScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

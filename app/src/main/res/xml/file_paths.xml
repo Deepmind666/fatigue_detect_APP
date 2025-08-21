@@ -2,4 +2,5 @@
 <paths>
     <cache-path name="shared_images" path="images/"/>
     <files-path name="images_private" path="images/"/>
+    <external-files-path name="external_debug" path="debug/"/>
 </paths>

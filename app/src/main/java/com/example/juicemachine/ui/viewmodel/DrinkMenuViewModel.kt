@@ -8,10 +8,12 @@ import androidx.lifecycle.viewModelScope
 import com.example.juicemachine.R
 import com.example.juicemachine.data.database.CupConfig
 import com.example.juicemachine.data.database.Recipe
+import com.example.juicemachine.data.database.Order
 import com.example.juicemachine.data.hardware.HardwareManager
 import com.example.juicemachine.data.hardware.WeightAnomalyData
 import com.example.juicemachine.data.hardware.WeightAnomalySeverity
 import com.example.juicemachine.data.repository.RecipeRepository
+import com.example.juicemachine.data.repository.OrderRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +21,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.ArrayDeque
+import com.example.juicemachine.util.DebugLogger
 
 data class DrinkMenuUiState(
     val recipes: List<Recipe> = emptyList(),
@@ -41,11 +46,20 @@ data class DrinkMenuUiState(
 
 class DrinkMenuViewModel(
     private val recipeRepository: RecipeRepository,
+    private val orderRepository: OrderRepository,
     private val hardwareManager: HardwareManager
 ) : ViewModel() {
-
+    
+    // 标记：是否将当前这次完成回调排除在统计之外（用于“重新制作不算”）
+    private var excludeCurrentOrderFromStats: Boolean = false
+    
+    // 添加一个队列，保存待更新的订单ID
+    private val pendingOrderIds: ArrayDeque<Long> = ArrayDeque()
     private val _uiState = MutableStateFlow(DrinkMenuUiState())
     val uiState: StateFlow<DrinkMenuUiState> = _uiState.asStateFlow()
+
+    // 新增：待更新订单队列（按下单顺序）
+    // private val pendingOrderIds: ArrayDeque<Long> = ArrayDeque()
 
     init {
         loadRecipes()
@@ -69,20 +83,27 @@ class DrinkMenuViewModel(
             }
         }
         
-        // 修复：设置状态监听器
+        // 修复：设置状态监听器（不再把“未连接/失败”直接塞到错误弹窗，避免频繁挡屏）
         hardwareManager.setOnStatusListener { msg ->
             Log.d("DrinkMenuViewModel", "连接状态更新: $msg")
-            _uiState.update { it.copy(connectionStatus = msg, errorMessage = if (msg.contains("未连接") || msg.contains("失败")) msg else null) }
+            _uiState.update { it.copy(connectionStatus = msg, errorMessage = it.errorMessage) }
         }
         
         // 重要：先设置异常监听器，再连接硬件
-        android.util.Log.e("DrinkMenuViewModel", "=== 开始设置异常监听器 ===")
         setupSafeAnomalyListener()
-        android.util.Log.e("DrinkMenuViewModel", "=== 异常监听器设置完成 ===")
+
+        // 新增：设置制作完成/失败回调监听
+        setupOrderCompletionListener()
         
-        // 修复：立即连接，不延迟
+        // 启动即尝试连接，等待权限回调（不弹出错误）
+        tryConnect()
+    }
+
+    private fun tryConnect() {
+        DebugLogger.i("DrinkMenuViewModel", "开始发起连接", showToast = true)
         hardwareManager.connect { status ->
             Log.d("DrinkMenuViewModel", "硬件连接状态: $status")
+            DebugLogger.i("DrinkMenuViewModel", "硬件连接状态: $status", showToast = true)
             _uiState.update { it.copy(connectionStatus = status) }
         }
     }
@@ -105,56 +126,131 @@ class DrinkMenuViewModel(
     }
 
     fun onConfirmDialog(recipe: Recipe, cupSize: String, withIce: Boolean) {
+        // 新下单按正常统计
+        excludeCurrentOrderFromStats = false
         if (!hardwareManager.isConnected) {
-            _uiState.update { it.copy(errorMessage = "串口未连接，无法下单") }
+            tryConnect()
+            _uiState.update { it.copy(errorMessage = "正在连接设备，请稍候再试") }
+            DebugLogger.w("DrinkMenuViewModel", "未连接直接下单，已触发重连", showToast = true)
             return
         }
-        
-        // 添加调试信息
         Log.d("DrinkMenuViewModel", "确认下单: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
-        
-        hardwareManager.makeJuice(recipe, cupSize, withIce)
-        
-        // 下单后自动扣减剩余重量（根据杯型计算实际消耗）
-        viewModelScope.launch {
+        DebugLogger.i("DrinkMenuViewModel", "确认下单: ${recipe.name}/$cupSize/${if(withIce) "冰" else "去冰"}", showToast = true)
+
+        // 修复：将发送和数据库操作放到IO线程，避免主线程阻塞
+        viewModelScope.launch(Dispatchers.IO) {
+            var sentOk = false
+            try {
+                sentOk = hardwareManager.makeJuice(recipe, cupSize, withIce)
+                DebugLogger.i("DrinkMenuViewModel", "makeJuice 已调用, result=$sentOk")
+            } catch (e: Exception) {
+                Log.e("DrinkMenuViewModel", "调用makeJuice发生异常: ${e.message}", e)
+                DebugLogger.e("DrinkMenuViewModel", "调用makeJuice异常: ${e.message}", e, showToast = true)
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(errorMessage = "发送指令失败：${e.message ?: "未知错误"}") }
+                }
+                return@launch
+            }
+            if (!sentOk) {
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(errorMessage = "发送下单指令失败，请检查连接") }
+                }
+                return@launch
+            }
+
+            // 入库订单与库存扣减（IO线程），UI更新切回主线程
+            val qty = 1
+            val unitPrice = recipe.price
+            val totalAmount = qty * unitPrice
+            val actualJuice = when (cupSize) { "大杯" -> (recipe.juice * 1.3).toInt(); else -> recipe.juice }
+            val actualWater = when (cupSize) { "大杯" -> (recipe.water * 1.3).toInt(); else -> recipe.water }
+            val order = Order(
+                recipeId = recipe.id,
+                recipeName = recipe.name,
+                quantity = qty,
+                unitPrice = unitPrice,
+                totalAmount = totalAmount,
+                cupSize = cupSize,
+                withIce = withIce,
+                status = "PENDING",
+                actualJuiceConsumption = actualJuice,
+                actualWaterConsumption = actualWater,
+                notes = null
+            )
+            try {
+                val newId = orderRepository.insertOrder(order)
+                withContext(Dispatchers.Main) {
+                    pendingOrderIds.addLast(newId)
+                }
+            } catch (e: Exception) {
+                Log.e("DrinkMenuViewModel", "写入订单失败: ${e.message}", e)
+            }
             val actualJuiceConsumption = when (cupSize) {
                 "大杯" -> (recipe.juice * 1.3).toInt()
                 else -> recipe.juice
             }
             val newRemain = (recipe.remainWeight - actualJuiceConsumption).coerceAtLeast(0)
-            recipeRepository.updateRemainWeight(recipe.id, newRemain)
-        }
-        
-        // 修复：只清除选中的配方，不影响异常弹窗状态
-        _uiState.update { currentState ->
-            currentState.copy(
-                selectedRecipe = null,
-                // 保持异常弹窗状态不变
-                showWeightChangeDialog = currentState.showWeightChangeDialog,
-                isInterrupted = currentState.isInterrupted,
-                interruptedRecipe = currentState.interruptedRecipe
-            )
+            try {
+                recipeRepository.updateRemainWeight(recipe.id, newRemain)
+            } catch (e: Exception) {
+                Log.e("DrinkMenuViewModel", "更新库存失败: ${e.message}", e)
+            }
+            withContext(Dispatchers.Main) {
+                _uiState.update { currentState ->
+                    currentState.copy(
+                        selectedRecipe = null,
+                        showWeightChangeDialog = currentState.showWeightChangeDialog,
+                        isInterrupted = currentState.isInterrupted,
+                        interruptedRecipe = currentState.interruptedRecipe
+                    )
+                }
+            }
         }
     }
 
     fun onClean() {
-        _uiState.update { it.copy(errorMessage = "发送清洗指令(0x03)") }
-        hardwareManager.sendAdminCommand(0x03)
+        // 后台发送管理指令，避免阻塞主线程
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = hardwareManager.sendAdminCommand(0x03)
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(errorMessage = if (ok) "已发送清洗指令(0x03)" else "发送清洗指令失败") }
+            }
+        }
     }
 
     fun onStopAction() {
-        _uiState.update { it.copy(errorMessage = "发送停止指令(0x04)") }
-        hardwareManager.sendAdminCommand(0x04)
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = hardwareManager.sendAdminCommand(0x04)
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(errorMessage = if (ok) "已发送停止指令(0x04)" else "发送停止指令失败") }
+            }
+        }
     }
 
     fun onTare() {
-        _uiState.update { it.copy(errorMessage = "发送去皮指令(0x05)") }
-        hardwareManager.sendAdminCommand(0x05)
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = hardwareManager.sendAdminCommand(0x05)
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(errorMessage = if (ok) "已发送去皮指令(0x05)" else "发送去皮指令失败") }
+            }
+        }
     }
 
     fun onWeigh() {
-        _uiState.update { it.copy(errorMessage = "发送称重指令(0x06)") }
-        hardwareManager.sendAdminCommand(0x06)
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = hardwareManager.sendAdminCommand(0x06)
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(errorMessage = if (ok) "已发送称重指令(0x06)" else "发送称重指令失败") }
+            }
+        }
+    }
+
+    // 新增：手动重连设备入口（后台管理页）
+    fun onReconnect() {
+        hardwareManager.connect { status ->
+            Log.d("DrinkMenuViewModel", "手动重连：$status")
+            _uiState.update { it.copy(connectionStatus = status, errorMessage = if (status.contains("未连接") || status.contains("失败")) status else null) }
+        }
     }
 
     fun onHeaderLongClick() {
@@ -305,216 +401,158 @@ class DrinkMenuViewModel(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
-    // 新增：手动测试中断处理功能 - 直接显示有继续制作和重新制作按钮的弹窗
-    fun testPopup() {
-        android.util.Log.e("DrinkMenuViewModel", "=== 手动测试中断处理 ===")
-        
-        // 直接显示完整的弹窗，不显示测试成功界面
-        _uiState.update { current ->
-            current.copy(
-                showWeightChangeDialog = true,
-                isInterrupted = true,
-                interruptedRecipe = current.recipes.firstOrNull(), // 设置一个默认配方
-                interruptedCupSize = "中杯",
-                interruptedWithIce = true,
-                errorMessage = null // 不再使用通用错误弹窗，避免与重量异常弹窗竞争
-            )
-        }
-        
-        android.util.Log.e("DrinkMenuViewModel", "=== 中断处理：直接显示继续/重新制作弹窗 ===")
-    }
-    
-        // 新增：显示数据缓冲区 - 恢复正常功能
-    fun showDataBuffer() {
-        try {
-            val bufferContent = hardwareManager.getDataBuffer()
-            android.util.Log.e("DrinkMenuViewModel", "=== 显示数据缓冲区 ===")
-            android.util.Log.e("DrinkMenuViewModel", "=== 缓冲区内容: '$bufferContent' ===")
+    // 删除：手动测试与调试相关的方法（testPopup/showDataBuffer/clearDataBuffer/checkConnectionStatus/testDataReceive/testAnomalyDetection/testListenerCall）
+    // 这些方法会干扰真实串口触发路径，现统一移除。
 
-            val contentToShow = if (bufferContent.isBlank()) {
-                android.util.Log.e("DrinkMenuViewModel", "=== 缓冲区为空或仅空白，添加测试数据 ===")
-                hardwareManager.addTestDataToBuffer()
-                // 重新获取缓冲区内容
-                val newBufferContent = hardwareManager.getDataBuffer()
-                android.util.Log.e("DrinkMenuViewModel", "=== 添加测试数据后缓冲区内容: '$newBufferContent' ===")
-                newBufferContent
-            } else {
-                bufferContent
-            }
-
-            _uiState.update { current ->
-                current.copy(
-                    errorMessage = "数据缓冲区内容:\n$contentToShow"
-                )
-            }
-            
-            // 增强匹配：对缓冲区做HEX规范化（忽略大小写与分隔符），支持连续触发
-            val normalizedHex = contentToShow
-                .uppercase(java.util.Locale.ROOT)
-                .filter { it in "0123456789ABCDEF" }
-            android.util.Log.e("DrinkMenuViewModel", "=== 规范化后缓冲区内容(仅HEX): '$normalizedHex' ===")
-            
-            if (normalizedHex.contains("FF09")) {
-                android.util.Log.e("DrinkMenuViewModel", "=== 检测到FF09(忽略分隔与大小写)，自动触发中断处理弹窗 ===")
-                hardwareManager.forceTriggerDialog()
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("DrinkMenuViewModel", "=== 显示数据缓冲区失败: ${e.message} ===", e)
-            _uiState.update { current ->
-                current.copy(
-                    errorMessage = "读取数据缓冲区失败: ${e.message}"
-                )
-            }
-        }
-    }
-    
-    // 新增：清空数据缓冲区
-    fun clearDataBuffer() {
-        hardwareManager.clearDataBuffer()
-        android.util.Log.e("DrinkMenuViewModel", "=== 清空数据缓冲区 ===")
-        _uiState.update { current ->
-            current.copy(
-                errorMessage = "数据缓冲区已清空"
-            )
-        }
-    }
-    
-    // 新增：检查连接状态
-    fun checkConnectionStatus() {
-        val status = hardwareManager.isConnected
-        android.util.Log.e("DrinkMenuViewModel", "=== 连接状态: $status ===")
-        // 删除Toast：连接状态提示，避免重复显示
-        _uiState.update { current ->
-            current.copy(
-                errorMessage = "连接状态: $status"
-            )
-        }
-    }
-    
-    // 新增：测试数据接收
-    fun testDataReceive() {
-        android.util.Log.e("DrinkMenuViewModel", "=== 测试数据接收 ===")
-        hardwareManager.testDataReceive()
-    }
-    
-    // 新增：测试异常检测逻辑
-    fun testAnomalyDetection() {
-        android.util.Log.e("DrinkMenuViewModel", "=== 测试异常检测逻辑 ===")
-        hardwareManager.testAnomalyDetection()
-    }
-    
-    // 新增：中断处理 - 直接显示完整的弹窗（有继续制作和重新制作按钮）
-    fun testListenerCall() {
-        android.util.Log.e("DrinkMenuViewModel", "=== 中断处理 ===")
-        
-        // 直接显示完整的弹窗，不显示测试成功消息
-        _uiState.update { current ->
-            android.util.Log.e("DrinkMenuViewModel", "=== 更新UI状态前: showWeightChangeDialog=${current.showWeightChangeDialog} ===")
-            val newState = current.copy(
-                showWeightChangeDialog = true,
-                isInterrupted = true,
-                interruptedRecipe = current.recipes.firstOrNull(), // 设置一个默认配方
-                interruptedCupSize = "中杯",
-                interruptedWithIce = true,
-                errorMessage = null // 不再使用通用错误弹窗，避免与重量异常弹窗竞争
-            )
-            android.util.Log.e("DrinkMenuViewModel", "=== 更新UI状态后: showWeightChangeDialog=${newState.showWeightChangeDialog} ===")
-            newState
-        }
-        
-        android.util.Log.e("DrinkMenuViewModel", "=== 中断处理弹窗设置完成 ===")
-        
-        // 在主线程显示确认消息
-        viewModelScope.launch(Dispatchers.Main) {
-            // 删除Toast：中断处理弹窗已启动
-        }
-    }
-
-    // 新增：模拟重量变化检测
+    // 新增：模拟重量变化检测（保留供无设备环境演示，可按需移除）
     fun onSimulateWeightChange() {
         _uiState.update { 
             it.copy(
                 showWeightChangeDialog = true,
                 isInterrupted = true,
                 interruptedRecipe = it.selectedRecipe,
-                interruptedCupSize = "中杯", // 默认值
-                interruptedWithIce = true    // 默认值
+                interruptedCupSize = "中杯",
+                interruptedWithIce = true
             ) 
         }
     }
 
     // 新增：继续制作
     fun onContinueRecipe() {
+        // 继续制作：不插入新订单，保持正常统计
+        excludeCurrentOrderFromStats = false
         if (!hardwareManager.isConnected) {
-            // 模拟模式下也要关闭弹窗
+            _uiState.update { 
+                it.copy(
+                    // 保持弹窗与中断状态，提示用户检查连接
+                    showWeightChangeDialog = true,
+                    isInterrupted = true,
+                    errorMessage = "设备未连接，无法继续，请检查连接"
+                ) 
+            }
+            return
+        }
+        Log.d("DrinkMenuViewModel", "发送继续制作指令")
+        val ok = hardwareManager.sendContinueCommand()
+        if (ok) {
             _uiState.update { 
                 it.copy(
                     showWeightChangeDialog = false,
                     isInterrupted = false,
                     interruptedRecipe = null,
-                    errorMessage = null // 避免在关闭重量异常弹窗后再弹出通用提示
+                    errorMessage = null
                 ) 
             }
-            return
-        }
-        
-        Log.d("DrinkMenuViewModel", "发送继续制作指令")
-        hardwareManager.sendContinueCommand()
-        
-        _uiState.update { 
-            it.copy(
-                showWeightChangeDialog = false,
-                isInterrupted = false,
-                interruptedRecipe = null,
-                errorMessage = null // 避免在关闭重量异常弹窗后再弹出通用提示
-            ) 
+        } else {
+            _uiState.update { 
+                it.copy(
+                    // 保持弹窗，以便用户可再次选择
+                    showWeightChangeDialog = true,
+                    isInterrupted = true,
+                    errorMessage = "发送继续指令失败"
+                ) 
+            }
         }
     }
 
     // 新增：重新制作
     fun onRestartRecipe() {
+        // 重新制作：不插入新订单，并将当前回调从统计中排除
+        excludeCurrentOrderFromStats = true
         if (!hardwareManager.isConnected) {
-            // 模拟模式下也要关闭弹窗
+            _uiState.update { 
+                it.copy(
+                    // 保持弹窗与中断状态，提示用户检查连接
+                    showWeightChangeDialog = true,
+                    isInterrupted = true,
+                    errorMessage = "设备未连接，无法重新制作，请检查连接"
+                ) 
+            }
+            return
+        }
+        val currentState = _uiState.value
+        val recipe = currentState.interruptedRecipe
+        val cupSize = currentState.interruptedCupSize
+        val withIce = currentState.interruptedWithIce
+        if (recipe != null) {
+            Log.d("DrinkMenuViewModel", "重新制作: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
+        }
+        val ok = hardwareManager.sendRestartCommand()
+        if (ok) {
             _uiState.update { 
                 it.copy(
                     showWeightChangeDialog = false,
                     isInterrupted = false,
                     interruptedRecipe = null,
-                    errorMessage = null // 避免在关闭重量异常弹窗后再弹出通用提示
+                    errorMessage = null
                 ) 
             }
-            return
-        }
-        
-        val currentState = _uiState.value
-        val recipe = currentState.interruptedRecipe
-        val cupSize = currentState.interruptedCupSize
-        val withIce = currentState.interruptedWithIce
-        
-        if (recipe != null) {
-            Log.d("DrinkMenuViewModel", "重新制作: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
-        }
-        
-        hardwareManager.sendRestartCommand()
-        
-        _uiState.update { 
-            it.copy(
-                showWeightChangeDialog = false,
-                isInterrupted = false,
-                interruptedRecipe = null,
-                errorMessage = null // 避免在关闭重量异常弹窗后再弹出通用提示
-            ) 
+        } else {
+            _uiState.update { 
+                it.copy(
+                    showWeightChangeDialog = true,
+                    isInterrupted = true,
+                    errorMessage = "发送重新制作指令失败"
+                ) 
+            }
         }
     }
 
-    // 新增：图片选择处理
+    // 新增：制作完成/失败回调监听，更新订单状态
+    private fun setupOrderCompletionListener() {
+        hardwareManager.setOnOrderCompletionListener { success ->
+            viewModelScope.launch {
+                try {
+                    // 出队一个待更新的订单ID（在主线程执行队列操作）
+                    val orderId: Long? = withContext(Dispatchers.Main) {
+                        if (pendingOrderIds.isEmpty()) null else pendingOrderIds.removeFirst()
+                    }
+                    if (orderId == null) {
+                        Log.w("DrinkMenuViewModel", "没有待更新的订单ID，忽略完成回调: success=$success")
+                    } else {
+                        val order = orderRepository.getOrderById(orderId)
+                        if (order != null) {
+                            val updatedStatus = if (excludeCurrentOrderFromStats) {
+                                // 重新制作：将本次订单标记为取消，从而不计入任何统计
+                                "CANCELLED"
+                            } else {
+                                if (success) "COMPLETED" else "FAILED"
+                            }
+                            val updated = order.copy(status = updatedStatus)
+                            orderRepository.updateOrder(updated)
+                            Log.i("DrinkMenuViewModel", "订单状态已更新: id=$orderId, status=${updated.status}, exclude=$excludeCurrentOrderFromStats")
+                            
+                            // >>> 新增：通知统计页面刷新 <<<
+                            StatisticsRefreshNotifier.notifyOrderUpdated()
+                        } else {
+                            Log.w("DrinkMenuViewModel", "未找到订单(id=$orderId)，无法更新状态")
+                        }
+                    }
+                    // 重置排除标志，避免影响后续订单
+                    excludeCurrentOrderFromStats = false
+                    // 反馈到UI
+                    _uiState.update { it.copy(errorMessage = if (success) "制作完成" else "制作失败") }
+                } catch (e: Exception) {
+                    Log.e("DrinkMenuViewModel", "更新订单状态失败: ${e.message}", e)
+                    _uiState.update { it.copy(errorMessage = "更新订单状态失败: ${e.message}") }
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        hardwareManager.disconnect()
+    }
+
+    // 供图片选择回调使用
     fun onImageSelected(uri: android.net.Uri?) {
         try {
             _uiState.update { it.copy(selectedImageUri = uri) }
             Log.d("DrinkMenuViewModel", "图片已选择: $uri")
         } catch (e: Exception) {
             Log.e("DrinkMenuViewModel", "图片选择处理失败: ${e.message}", e)
-            _uiState.update { 
+            _uiState.update {
                 it.copy(
                     selectedImageUri = null,
                     errorMessage = "图片处理失败，请重试"
@@ -523,83 +561,65 @@ class DrinkMenuViewModel(
         }
     }
 
-    // 新增：清除选中的图片
+    // 清除已选择的图片
     fun clearSelectedImage() {
         _uiState.update { it.copy(selectedImageUri = null) }
     }
 
-    // 添加恢复默认数据的函数
+    // 恢复默认配方
     fun restoreDefaultRecipes() {
         viewModelScope.launch {
-            // 删除所有现有配方
-            val existingRecipes = recipeRepository.allRecipes.first()
-            existingRecipes.forEach { recipe ->
-                recipeRepository.deleteRecipe(recipe)
+            try {
+                val existingRecipes = recipeRepository.allRecipes.first()
+                existingRecipes.forEach { recipe ->
+                    recipeRepository.deleteRecipe(recipe)
+                }
+                val defaultRecipes = listOf(
+                    Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
+                    Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2, imageUri = null),
+                    Recipe(name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3, imageUri = null)
+                )
+                defaultRecipes.forEach { recipe -> recipeRepository.insertRecipe(recipe) }
+                _uiState.update { it.copy(errorMessage = "默认配方已恢复") }
+            } catch (e: Exception) {
+                Log.e("DrinkMenuViewModel", "恢复默认配方失败: ${e.message}", e)
+                _uiState.update { it.copy(errorMessage = "恢复默认配方失败: ${e.message}") }
             }
-            
-            // 重新插入默认的三种核心饮料
-            val defaultRecipes = listOf(
-                Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
-                Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2, imageUri = null),
-                Recipe(name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3, imageUri = null)
-            )
-            
-            defaultRecipes.forEach { recipe ->
-                recipeRepository.insertRecipe(recipe)
-            }
-            
-            _uiState.update { it.copy(errorMessage = "默认配方已恢复，新增配方已删除") }
         }
     }
 
+    // 安全设置异常监听器
     private fun setupSafeAnomalyListener() {
-        android.util.Log.e("DrinkMenuViewModel", "=== setupSafeAnomalyListener被调用 ===")
-        hardwareManager.setOnWeightAnomalyListener { anomalyData ->
-            android.util.Log.e("DrinkMenuViewModel", "=== ViewModel中的异常监听器被调用 ===")
-            
-            // 在主线程中更新UI状态
+        hardwareManager.setOnWeightAnomalyListener { anomalyData: WeightAnomalyData ->
             viewModelScope.launch(Dispatchers.Main) {
                 try {
-                    android.util.Log.e("DrinkMenuViewModel", "=== 开始更新UI状态 ===")
                     _uiState.update { current ->
-                        android.util.Log.e("DrinkMenuViewModel", "=== 当前状态: showWeightChangeDialog=${current.showWeightChangeDialog} ===")
-                        val newState = current.copy(
+                        current.copy(
                             showWeightChangeDialog = true,
                             isInterrupted = true,
-                            interruptedRecipe = current.recipes.firstOrNull(), // 设置一个默认配方
+                            interruptedRecipe = current.selectedRecipe ?: current.recipes.firstOrNull(),
                             interruptedCupSize = "中杯",
                             interruptedWithIce = true,
                             errorMessage = "检测到重量异常: 当前${anomalyData.currentWeight}g 预期${anomalyData.expectedWeight}g"
                         )
-                        android.util.Log.e("DrinkMenuViewModel", "=== 更新后状态: showWeightChangeDialog=${newState.showWeightChangeDialog} ===")
-                        newState
                     }
-                    android.util.Log.e("DrinkMenuViewModel", "=== UI状态更新完成 ===")
-                    
-                    // 显示确认消息
-                    // 删除Toast：异常监听器触发弹窗
-                } catch (e: Exception) { 
-                    android.util.Log.e("DrinkMenuViewModel", "=== UI状态更新失败: ${e.message} ===")
-                    // 删除Toast：UI更新失败，保留日志
+                } catch (e: Exception) {
+                    Log.e("DrinkMenuViewModel", "异常处理更新UI失败: ${e.message}")
                 }
             }
         }
-        android.util.Log.e("DrinkMenuViewModel", "=== setupSafeAnomalyListener设置完成 ===")
-    }
-    override fun onCleared() {
-        super.onCleared()
-        hardwareManager.disconnect()
     }
 }
 
 class DrinkMenuViewModelFactory(
     private val repository: RecipeRepository,
-    private val hardwareManager: HardwareManager
+    private val hardwareManager: HardwareManager,
+    private val orderRepository: OrderRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(DrinkMenuViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return DrinkMenuViewModel(repository, hardwareManager) as T
+            return DrinkMenuViewModel(repository, orderRepository, hardwareManager) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

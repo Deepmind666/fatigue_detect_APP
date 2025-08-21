@@ -1,57 +1,22 @@
 package com.example.juicemachine.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.juicemachine.data.database.Recipe
-import com.example.juicemachine.ui.theme.JuiceMachineTheme
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Divider
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import com.example.juicemachine.R
-import androidx.compose.material3.ButtonColors
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import androidx.compose.ui.platform.LocalContext
-import android.util.Log
+import com.example.juicemachine.data.database.Recipe
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,9 +30,13 @@ fun AdminScreen(
     onStop: () -> Unit,
     onNavigateBack: () -> Unit,
     onDismissError: () -> Unit = {},
-    onRestoreDefaults: () -> Unit = {}
+    onRestoreDefaults: () -> Unit = {},
+    onNavigateToStatistics: () -> Unit = {}
 ) {
-    val coreRecipes = listOf("茉莉雪芽", "柳橙百香", "满杯桑葚")
+    // 确认弹窗开关
+    var showConfirmClean by remember { mutableStateOf(false) }
+    var showConfirmStop by remember { mutableStateOf(false) }
+    var showConfirmRestore by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -77,6 +46,23 @@ fun AdminScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
+                },
+                actions = {
+                    AssistChip(
+                        onClick = onNavigateToStatistics,
+                        label = { Text("统计") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Analytics,
+                                contentDescription = "统计",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    )
                 }
             )
         },
@@ -84,274 +70,130 @@ fun AdminScreen(
             FloatingActionButton(onClick = onAddRecipe) {
                 Icon(Icons.Filled.Add, contentDescription = "添加新配方")
             }
-        },
-        content = { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
-                // 配方列表
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(bottom = 8.dp)
-                ) {
-                    items(recipes) { recipe ->
-                        RecipeRow(
-                            recipe = recipe,
-                            onEdit = { onEditRecipe(recipe) },
-                            onDelete = { onDeleteRecipe(recipe) },
-                            isCoreRecipe = recipe.name in coreRecipes
-                        )
-                    }
-                }
-
-                // 控制按钮区域
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    elevation = CardDefaults.cardElevation(4.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+        }
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(recipes) { r ->
+                    RecipeRow(
+                        recipe = r,
+                        onEdit = { onEditRecipe(r) },
+                        onDelete = { onDeleteRecipe(r) }
                     )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp)
-                    ) {
-                        Text(
-                            text = "设备控制",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // First row of buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            ActionButton(
-                                text = "一键清洗",
-                                onClick = onClean,
-                                modifier = Modifier.weight(1f),
-                                isPrimary = true
-                            )
-                            ActionButton(
-                                text = "清洗停止",
-                                onClick = onStop,
-                                modifier = Modifier.weight(1f),
-                                isPrimary = true // 修改为 true，与“一键清洗”保持一致
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Third row - Restore button
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            ActionButton(
-                                text = "恢复默认配方",
-                                onClick = onRestoreDefaults,
-                                modifier = Modifier.fillMaxWidth(0.6f),
-                                isPrimary = false, // 保持为次要，但提供覆盖颜色
-                                // 精确覆盖为旧的绿色（主题中的次要颜色）
-                                overrideColors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondary
-                                )
-                            )
-                        }
-                    }
                 }
+            }
+            // 控制区域
+            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { showConfirmClean = true }, modifier = Modifier.weight(1f)) { Text("一键清洗") }
+                Button(onClick = { showConfirmStop = true }, modifier = Modifier.weight(1f)) { Text("清洗停止") }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.Center) {
+                Button(
+                    onClick = { showConfirmRestore = true },
+                    modifier = Modifier.fillMaxWidth(0.7f).height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                ) { Text("恢复默认配方", color = Color.White) }
             }
         }
-    )
-    
-    // 添加错误信息显示
+    }
+
+    // 确认弹窗：一键清洗
+    if (showConfirmClean) {
+        AlertDialog(
+            onDismissRequest = { showConfirmClean = false },
+            title = { Text("确认清洗") },
+            text = { Text("确定要执行一键清洗吗？此操作将立刻发送清洗指令。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmClean = false
+                    onClean()
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmClean = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // 确认弹窗：清洗停止
+    if (showConfirmStop) {
+        AlertDialog(
+            onDismissRequest = { showConfirmStop = false },
+            title = { Text("确认停止") },
+            text = { Text("确定要停止清洗吗？将发送停止指令。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmStop = false
+                    onStop()
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmStop = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // 确认弹窗：恢复默认配方
+    if (showConfirmRestore) {
+        AlertDialog(
+            onDismissRequest = { showConfirmRestore = false },
+            title = { Text("恢复默认配方") },
+            text = { Text("确定要恢复默认配方吗？此操作将覆盖当前自定义配方，且不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmRestore = false
+                    onRestoreDefaults()
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmRestore = false }) { Text("取消") }
+            }
+        )
+    }
+
     if (errorMessage != null) {
         AlertDialog(
-            onDismissRequest = { onDismissError() },
-            title = { Text("调试信息") },
+            onDismissRequest = onDismissError,
+            title = { Text("提示") },
             text = { Text(errorMessage) },
-            confirmButton = {
-                Button(onClick = { onDismissError() }) { Text("确定") }
-            }
+            confirmButton = { Button(onClick = onDismissError) { Text("确定") } }
         )
     }
 }
 
 @Composable
-fun RecipeRow(
+private fun RecipeRow(
     recipe: Recipe,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    isCoreRecipe: Boolean
+    onDelete: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(16.dp)
-        ) {
-            // 饮品图片
-            Card(
-                modifier = Modifier.size(80.dp),
-                shape = RoundedCornerShape(12.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
-                
-                if (!recipe.imageUri.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(recipe.imageUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = recipe.name,
-                        modifier = Modifier
-                            .size(80.dp),
-                        contentScale = ContentScale.Crop,
-                        error = defaultPainter,
-                        fallback = defaultPainter,
-                        onError = { error ->
-                             Log.d("AdminScreen", "Image load error for ${recipe.name}: ${error.result.throwable.message}")
-                         }
-                    )
-                } else {
-                    Image(
-                        painter = defaultPainter,
-                        contentDescription = recipe.name,
-                        modifier = Modifier
-                            .size(80.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            // 信息区域
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = recipe.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "水: ${recipe.water}g  •  汁: ${recipe.juice}g  •  ¥${recipe.price}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "通道: ${recipe.juiceChannel}  •  剩余: ${recipe.remainWeight}g",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            
-            // 操作按钮
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                IconButton(
-                    onClick = onEdit,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Edit,
-                        contentDescription = "编辑配方",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    enabled = !isCoreRecipe,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "删除配方",
-                        tint = if (isCoreRecipe) Color.Gray else MaterialTheme.colorScheme.error
-                    )
-                }
-            }
+        Image(
+            painter = painterResource(id = getDrawableForRecipe(recipe.name)),
+            contentDescription = recipe.name,
+            modifier = Modifier.size(64.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = recipe.name, style = MaterialTheme.typography.titleMedium)
+            Text(text = "水: ${recipe.water}g, 果汁: ${recipe.juice}g", style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onEdit) { Text("编辑") }
+            Button(onClick = onDelete) { Text("删除") }
         }
     }
 }
 
-// 添加获取饮品图片的函数
 private fun getDrawableForRecipe(recipeName: String): Int {
     return when (recipeName) {
         "茉莉雪芽" -> R.drawable.mo_li_xue_ya
         "柳橙百香" -> R.drawable.liu_cheng_bai_xiang
         "满杯桑葚" -> R.drawable.man_bei_sang_shen
         else -> R.drawable.placeholder
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun AdminScreenPreview() {
-    val previewRecipes = listOf(
-        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
-        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 1000, juiceChannel = 2, imageUri = null),
-        Recipe(id = 3, name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 1000, juiceChannel = 3, imageUri = null)
-    )
-    JuiceMachineTheme {
-        AdminScreen(
-            recipes = previewRecipes,
-            onAddRecipe = {},
-            onEditRecipe = {},
-            onDeleteRecipe = {},
-            onClean = {},
-            onStop = {},
-            onNavigateBack = {},
-            onDismissError = {},
-            onRestoreDefaults = {}
-        )
-    }
-}
-
-@Composable
-fun ActionButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    isPrimary: Boolean = true,
-    overrideColors: ButtonColors? = null
-) {
-    Button(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
-        colors = overrideColors ?: if (isPrimary) {
-            ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            )
-        } else {
-            ButtonDefaults.filledTonalButtonColors()
-        }
-    ) {
-        Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }

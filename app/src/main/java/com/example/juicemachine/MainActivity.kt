@@ -24,13 +24,17 @@ import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModel
 import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModelFactory
 import android.hardware.usb.UsbManager
 import com.example.juicemachine.data.hardware.HardwareManager
+import com.example.juicemachine.util.DebugLogger
+import androidx.core.content.FileProvider
+import android.widget.Toast
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: DrinkMenuViewModel by viewModels {
         DrinkMenuViewModelFactory(
             (application as JuiceMachineApplication).repository,
-            (application as JuiceMachineApplication).hardwareManager
+            (application as JuiceMachineApplication).hardwareManager,
+            (application as JuiceMachineApplication).orderRepository
         )
     }
 
@@ -42,7 +46,7 @@ class MainActivity : ComponentActivity() {
                     val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
                     if (granted) {
                         android.util.Log.d("MainActivity", "USB权限已授权，重新connect")
-                        (application as JuiceMachineApplication).hardwareManager.connect { status ->
+                        (application as JuiceMachineApplication).hardwareManager.connect { _ ->
                             // 可根据需要更新UI
                         }
                     } else {
@@ -86,6 +90,26 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             registerReceiver(usbPermissionReceiver, filter)
         }
+        // 监听标题长按，导出日志
+        val root = findViewById<android.view.View>(android.R.id.content)
+        root.setOnLongClickListener {
+            val file = DebugLogger.getLogFile()
+            if (file == null || !file.exists()) {
+                Toast.makeText(this, "暂无日志可导出", Toast.LENGTH_SHORT).show()
+                return@setOnLongClickListener true
+            }
+            try {
+                val uri = FileProvider.getUriForFile(this, "$packageName.provider", file)
+                val share = Intent(Intent.ACTION_SEND)
+                share.type = "text/plain"
+                share.putExtra(Intent.EXTRA_STREAM, uri)
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                startActivity(Intent.createChooser(share, "导出诊断日志"))
+            } catch (e: Exception) {
+                Toast.makeText(this, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+            true
+        }
     }
 
     private fun checkAndRequestPermissions() {
@@ -120,6 +144,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 页面可见时主动连接串口
+        (application as JuiceMachineApplication).hardwareManager.connect { status ->
+            Log.d("MainActivity", "硬件状态: $status")
+        }
+    }
     override fun onDestroy() {
         super.onDestroy()
         try {

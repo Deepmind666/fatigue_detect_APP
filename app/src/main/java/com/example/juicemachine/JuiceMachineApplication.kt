@@ -7,10 +7,13 @@ import coil.decode.SvgDecoder
 import com.example.juicemachine.data.database.AppDatabase
 import com.example.juicemachine.data.hardware.HardwareManager
 import com.example.juicemachine.data.repository.RecipeRepository
+import com.example.juicemachine.data.repository.OrderRepository
+import com.example.juicemachine.data.repository.OrderRepositoryImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.example.juicemachine.util.DebugLogger
 
 
 class JuiceMachineApplication : Application(), ImageLoaderFactory {
@@ -21,7 +24,18 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
     // rather than when the application starts
     val database by lazy { AppDatabase.getDatabase(this, applicationScope) }
     val repository by lazy { RecipeRepository(database.recipeDao()) }
+    val orderRepository by lazy { OrderRepositoryImpl(database.orderDao()) }
     val hardwareManager by lazy { HardwareManager(this, applicationScope) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // 初始化本地日志
+        DebugLogger.init(this)
+        // 全局未捕获异常处理，落盘到日志文件
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            DebugLogger.crash("UncaughtException", "线程: ${thread.name}", throwable)
+        }
+    }
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)

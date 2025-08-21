@@ -10,10 +10,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [Recipe::class], version = 11, exportSchema = false)
+@Database(entities = [Recipe::class, Order::class], version = 12, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun recipeDao(): RecipeDao
+
+    abstract fun orderDao(): OrderDao
 
     private class AppDatabaseCallback(
         private val scope: CoroutineScope
