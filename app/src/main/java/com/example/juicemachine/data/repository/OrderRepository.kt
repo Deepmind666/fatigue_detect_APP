@@ -4,10 +4,11 @@ import android.content.Context
 import com.example.juicemachine.data.database.AppDatabase
 import com.example.juicemachine.data.database.DailySalesStats
 import com.example.juicemachine.data.database.InventoryConsumptionStats
-import com.example.juicemachine.data.database.Order
-import com.example.juicemachine.data.database.OrderDao
 import com.example.juicemachine.data.database.PopularRecipeStats
 import com.example.juicemachine.data.database.RecipeCupStats
+import com.example.juicemachine.data.database.RecipeDailyTrendStats
+import com.example.juicemachine.data.database.Order
+import com.example.juicemachine.data.database.OrderDao
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 
@@ -29,6 +30,8 @@ interface OrderRepository {
     suspend fun getPopularRecipeStats(startTime: Long, endTime: Long, limit: Int = 10): List<PopularRecipeStats>
     suspend fun getInventoryConsumptionStats(startTime: Long, endTime: Long): List<InventoryConsumptionStats>
     suspend fun getRecipeCupStats(startTime: Long, endTime: Long): List<RecipeCupStats>
+    suspend fun getRecipeDailyTrendStats(startTime: Long, endTime: Long): List<RecipeDailyTrendStats>
+    suspend fun getRecipeHourlyTrendStats(startTime: Long, endTime: Long): List<RecipeDailyTrendStats>
 
     // 汇总
     suspend fun getTotalCompletedOrders(): Int
@@ -56,6 +59,8 @@ class OrderRepositoryImpl(private val orderDao: OrderDao) : OrderRepository {
     override suspend fun getPopularRecipeStats(startTime: Long, endTime: Long, limit: Int): List<PopularRecipeStats> = orderDao.getPopularRecipeStats(startTime, endTime, limit)
     override suspend fun getInventoryConsumptionStats(startTime: Long, endTime: Long): List<InventoryConsumptionStats> = orderDao.getInventoryConsumptionStats(startTime, endTime)
     override suspend fun getRecipeCupStats(startTime: Long, endTime: Long): List<RecipeCupStats> = orderDao.getRecipeCupStats(startTime, endTime)
+    override suspend fun getRecipeDailyTrendStats(startTime: Long, endTime: Long): List<RecipeDailyTrendStats> = orderDao.getRecipeDailyTrendStats(startTime, endTime)
+    override suspend fun getRecipeHourlyTrendStats(startTime: Long, endTime: Long): List<RecipeDailyTrendStats> = orderDao.getRecipeHourlyTrendStats(startTime, endTime)
 
     override suspend fun getTotalCompletedOrders(): Int = orderDao.getTotalCompletedOrders()
     override suspend fun getTotalRevenue(): Int = orderDao.getTotalRevenue()

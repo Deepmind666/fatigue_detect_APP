@@ -27,6 +27,7 @@ import com.example.juicemachine.data.hardware.HardwareManager
 import com.example.juicemachine.util.DebugLogger
 import androidx.core.content.FileProvider
 import android.widget.Toast
+import android.annotation.SuppressLint
 
 class MainActivity : ComponentActivity() {
 
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         

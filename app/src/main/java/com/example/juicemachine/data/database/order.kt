@@ -51,10 +51,20 @@ data class InventoryConsumptionStats(
 )
 
 // 新增：按饮品+杯型统计
-data class RecipeCupStats(
-    val recipeId: Int,
-    val recipeName: String,
-    val cupSize: String,
-    val totalQuantity: Int,
-    val totalRevenue: Int
-)
+ data class RecipeCupStats(
+     val recipeId: Int,
+     val recipeName: String,
+     val cupSize: String,
+     val totalQuantity: Int,
+     val totalRevenue: Int
+ )
+
+// 新增：按日期+饮品+杯型的趋势统计
+ data class RecipeDailyTrendStats(
+     val date: String,
+     val recipeId: Int,
+     val recipeName: String,
+     val cupSize: String,
+     val totalQuantity: Int,
+     val totalRevenue: Int
+ )

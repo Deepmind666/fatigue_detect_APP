@@ -36,21 +36,24 @@ interface OrderDao {
     fun getRecentOrders(limit: Int = 10): Flow<List<Order>>
 
     // 统计查询
-    @Query("""
+    @Query(
+        """
         SELECT 
             date(orderTime/1000, 'unixepoch', 'localtime') as date,
             COUNT(*) as totalOrders,
-            SUM(totalAmount) as totalRevenue,
+            SUM(CASE WHEN status = 'COMPLETED' THEN totalAmount ELSE 0 END) as totalRevenue,
             SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completedOrders,
             SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failedOrders
         FROM orders 
         WHERE orderTime BETWEEN :startTime AND :endTime
         GROUP BY date(orderTime/1000, 'unixepoch', 'localtime')
         ORDER BY date DESC
-    """)
+    """
+    )
     suspend fun getDailySalesStats(startTime: Long, endTime: Long): List<DailySalesStats>
 
-    @Query("""
+    @Query(
+        """
         SELECT 
             recipeId,
             recipeName,
@@ -63,10 +66,12 @@ interface OrderDao {
         GROUP BY recipeId, recipeName
         ORDER BY totalQuantity DESC
         LIMIT :limit
-    """)
+    """
+    )
     suspend fun getPopularRecipeStats(startTime: Long, endTime: Long, limit: Int = 10): List<PopularRecipeStats>
 
-    @Query("""
+    @Query(
+        """
         SELECT 
             recipeId,
             recipeName,
@@ -78,11 +83,49 @@ interface OrderDao {
         WHERE status = 'COMPLETED' AND orderTime BETWEEN :startTime AND :endTime
         GROUP BY recipeId, recipeName
         ORDER BY totalJuiceConsumed DESC
-    """)
+    """
+    )
     suspend fun getInventoryConsumptionStats(startTime: Long, endTime: Long): List<InventoryConsumptionStats>
 
+    // 新增：按日期+饮品+杯型聚合的趋势统计
+    @Query(
+        """
+        SELECT 
+            date(orderTime/1000, 'unixepoch', 'localtime') as date,
+            recipeId,
+            recipeName,
+            cupSize,
+            SUM(quantity) as totalQuantity,
+            SUM(totalAmount) as totalRevenue
+        FROM orders 
+        WHERE status = 'COMPLETED' AND orderTime BETWEEN :startTime AND :endTime
+        GROUP BY date(orderTime/1000, 'unixepoch', 'localtime'), recipeId, recipeName, cupSize
+        ORDER BY date ASC, recipeName ASC
+    """
+    )
+    suspend fun getRecipeDailyTrendStats(startTime: Long, endTime: Long): List<RecipeDailyTrendStats>
+
+    // 新增：本日按小时+饮品聚合（杯型汇总）趋势统计，复用 RecipeDailyTrendStats 数据结构，hour 写入到 date 字段
+    @Query(
+        """
+        SELECT 
+            strftime('%H', orderTime/1000, 'unixepoch', 'localtime') as date,
+            recipeId,
+            recipeName,
+            '汇总' as cupSize,
+            SUM(quantity) as totalQuantity,
+            SUM(totalAmount) as totalRevenue
+        FROM orders 
+        WHERE status = 'COMPLETED' AND orderTime BETWEEN :startTime AND :endTime
+        GROUP BY strftime('%H', orderTime/1000, 'unixepoch', 'localtime'), recipeId, recipeName
+        ORDER BY date ASC, recipeName ASC
+    """
+    )
+    suspend fun getRecipeHourlyTrendStats(startTime: Long, endTime: Long): List<RecipeDailyTrendStats>
+
     // 新增：按饮品+杯型统计
-    @Query("""
+    @Query(
+        """
         SELECT 
             recipeId,
             recipeName,
@@ -93,20 +136,21 @@ interface OrderDao {
         WHERE status = 'COMPLETED' AND orderTime BETWEEN :startTime AND :endTime
         GROUP BY recipeId, recipeName, cupSize
         ORDER BY recipeName, cupSize
-    """)
+    """
+    )
     suspend fun getRecipeCupStats(startTime: Long, endTime: Long): List<RecipeCupStats>
 
     // 汇总统计
     @Query("SELECT COUNT(*) FROM orders WHERE status = 'COMPLETED'")
     suspend fun getTotalCompletedOrders(): Int
 
-    @Query("SELECT SUM(totalAmount) FROM orders WHERE status = 'COMPLETED'")
+    @Query("SELECT IFNULL(SUM(totalAmount), 0) FROM orders WHERE status = 'COMPLETED'")
     suspend fun getTotalRevenue(): Int
 
     @Query("SELECT COUNT(*) FROM orders WHERE status = 'COMPLETED' AND date(orderTime/1000, 'unixepoch', 'localtime') = date('now', 'localtime')")
     suspend fun getTodayCompletedOrders(): Int
 
-    @Query("SELECT SUM(totalAmount) FROM orders WHERE status = 'COMPLETED' AND date(orderTime/1000, 'unixepoch', 'localtime') = date('now', 'localtime')")
+    @Query("SELECT IFNULL(SUM(totalAmount), 0) FROM orders WHERE status = 'COMPLETED' AND date(orderTime/1000, 'unixepoch', 'localtime') = date('now', 'localtime')")
     suspend fun getTodayRevenue(): Int
 
     // 清理操作

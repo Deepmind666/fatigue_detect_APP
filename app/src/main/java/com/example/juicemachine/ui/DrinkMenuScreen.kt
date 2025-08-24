@@ -325,8 +325,29 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
             }
 
             // Overlay: price & labels
-            PriceTag(price = recipe.price)
-            if (isSoldOut) SoldOutTag() else if (isLowStock) LowStockBadge()
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                PriceTag(price = recipe.price)
+                if (!isSoldOut && isLowStock) {
+                    LowStockBadge()
+                }
+            }
+
+            // 售罄标志固定到左上角，避免出现在价格下方
+            if (isSoldOut) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                ) {
+                    SoldOutTag()
+                }
+            }
 
             // Title and subtitle
             Column(

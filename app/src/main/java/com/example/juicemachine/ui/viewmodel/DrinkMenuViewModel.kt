@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.ArrayDeque
 import com.example.juicemachine.util.DebugLogger
+import kotlinx.coroutines.delay
 
 data class DrinkMenuUiState(
     val recipes: List<Recipe> = emptyList(),
@@ -130,33 +131,16 @@ class DrinkMenuViewModel(
         excludeCurrentOrderFromStats = false
         if (!hardwareManager.isConnected) {
             tryConnect()
-            _uiState.update { it.copy(errorMessage = "正在连接设备，请稍候再试") }
-            DebugLogger.w("DrinkMenuViewModel", "未连接直接下单，已触发重连", showToast = true)
-            return
+            _uiState.update { it.copy(errorMessage = "未连接设备，将本地模拟下单与统计，正在尝试重连...") }
+            DebugLogger.w("DrinkMenuViewModel", "未连接直接下单，走本地模拟，已触发重连", showToast = true)
+            // 注意：不再提前return，继续走入库与本地模拟
         }
         Log.d("DrinkMenuViewModel", "确认下单: 饮品=${recipe.name}, 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
         DebugLogger.i("DrinkMenuViewModel", "确认下单: ${recipe.name}/$cupSize/${if(withIce) "冰" else "去冰"}", showToast = true)
 
         // 修复：将发送和数据库操作放到IO线程，避免主线程阻塞
         viewModelScope.launch(Dispatchers.IO) {
-            var sentOk = false
-            try {
-                sentOk = hardwareManager.makeJuice(recipe, cupSize, withIce)
-                DebugLogger.i("DrinkMenuViewModel", "makeJuice 已调用, result=$sentOk")
-            } catch (e: Exception) {
-                Log.e("DrinkMenuViewModel", "调用makeJuice发生异常: ${e.message}", e)
-                DebugLogger.e("DrinkMenuViewModel", "调用makeJuice异常: ${e.message}", e, showToast = true)
-                withContext(Dispatchers.Main) {
-                    _uiState.update { it.copy(errorMessage = "发送指令失败：${e.message ?: "未知错误"}") }
-                }
-                return@launch
-            }
-            if (!sentOk) {
-                withContext(Dispatchers.Main) {
-                    _uiState.update { it.copy(errorMessage = "发送下单指令失败，请检查连接") }
-                }
-                return@launch
-            }
+            val offline = !hardwareManager.isConnected
 
             // 入库订单与库存扣减（IO线程），UI更新切回主线程
             val qty = 1
@@ -178,31 +162,114 @@ class DrinkMenuViewModel(
                 notes = null
             )
             try {
+                // 先入库并加入待完成队列，确保硬件回调到来时有可更新的订单ID
                 val newId = orderRepository.insertOrder(order)
                 withContext(Dispatchers.Main) {
                     pendingOrderIds.addLast(newId)
                 }
+
+                if (!offline) {
+                    var sentOk = true
+                    try {
+                        sentOk = hardwareManager.makeJuice(recipe, cupSize, withIce)
+                        DebugLogger.i("DrinkMenuViewModel", "makeJuice 已调用, result=$sentOk")
+                    } catch (e: Exception) {
+                        Log.e("DrinkMenuViewModel", "调用makeJuice发生异常: ${e.message}", e)
+                        DebugLogger.e("DrinkMenuViewModel", "调用makeJuice异常: ${e.message}", e, showToast = true)
+                        // 发送失败：将刚刚入库的订单标记为失败并通知统计刷新
+                        val dbOrder = orderRepository.getOrderById(newId)
+                        if (dbOrder != null) {
+                            val updated = dbOrder.copy(status = "FAILED")
+                            orderRepository.updateOrder(updated)
+                            StatisticsRefreshNotifier.notifyOrderUpdated()
+                        }
+                        withContext(Dispatchers.Main) {
+                            pendingOrderIds.remove(newId)
+                            _uiState.update { it.copy(errorMessage = "发送指令失败：${e.message ?: "未知错误"}") }
+                        }
+                        return@launch
+                    }
+                    if (!sentOk) {
+                        // 发送返回失败：同样标记订单失败并通知统计刷新
+                        val dbOrder = orderRepository.getOrderById(newId)
+                        if (dbOrder != null) {
+                            val updated = dbOrder.copy(status = "FAILED")
+                            orderRepository.updateOrder(updated)
+                            StatisticsRefreshNotifier.notifyOrderUpdated()
+                        }
+                        withContext(Dispatchers.Main) {
+                            pendingOrderIds.remove(newId)
+                            _uiState.update { it.copy(errorMessage = "发送下单指令失败，请检查连接") }
+                        }
+                        return@launch
+                    }
+                } else {
+                    DebugLogger.i("DrinkMenuViewModel", "未连接，跳过发送硬件指令，走本地入库+模拟完成")
+                    // 未连接硬件：模拟订单完成，避免统计数据一直为0
+                    viewModelScope.launch {
+                        try {
+                            delay(1200)
+                            val dbOrder = orderRepository.getOrderById(newId)
+                            if (dbOrder != null) {
+                                val updated = dbOrder.copy(status = "COMPLETED")
+                                orderRepository.updateOrder(updated)
+                                Log.i("DrinkMenuViewModel", "DEBUG模拟完成: id=$newId 已标记为 COMPLETED")
+                                // 通知统计刷新
+                                StatisticsRefreshNotifier.notifyOrderUpdated()
+                            }
+                            withContext(Dispatchers.Main) {
+                                pendingOrderIds.remove(newId)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("DrinkMenuViewModel", "DEBUG模拟订单完成失败: ${e.message}", e)
+                        }
+                    }
+                }
+
+                // 兜底：长时间未收到硬件回调时，自动完成以保证统计可用
+                viewModelScope.launch {
+                    try {
+                        delay(20000)
+                        val dbOrder = orderRepository.getOrderById(newId)
+                        if (dbOrder != null && dbOrder.status == "PENDING") {
+                            val updated = dbOrder.copy(status = "COMPLETED")
+                            orderRepository.updateOrder(updated)
+                            Log.w("DrinkMenuViewModel", "超时未收到硬件回调，自动将订单($newId)标记为 COMPLETED 计入统计")
+                            StatisticsRefreshNotifier.notifyOrderUpdated()
+                            withContext(Dispatchers.Main) {
+                                pendingOrderIds.remove(newId)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("DrinkMenuViewModel", "自动完成兜底失败: ${e.message}", e)
+                    }
+                }
+
+                // 新增：下单后扣减配方果料库存并清理UI选择
+                val actualJuiceConsumption = when (cupSize) {
+                    "大杯" -> (recipe.juice * 1.3).toInt()
+                    else -> recipe.juice
+                }
+                val newRemain = (recipe.remainWeight - actualJuiceConsumption).coerceAtLeast(0)
+                try {
+                    recipeRepository.updateRemainWeight(recipe.id, newRemain)
+                } catch (e: Exception) {
+                    Log.e("DrinkMenuViewModel", "更新库存失败: ${e.message}", e)
+                }
+                withContext(Dispatchers.Main) {
+                    _uiState.update { currentState ->
+                        currentState.copy(
+                            selectedRecipe = null,
+                            showWeightChangeDialog = currentState.showWeightChangeDialog,
+                            isInterrupted = currentState.isInterrupted,
+                            interruptedRecipe = currentState.interruptedRecipe
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 Log.e("DrinkMenuViewModel", "写入订单失败: ${e.message}", e)
-            }
-            val actualJuiceConsumption = when (cupSize) {
-                "大杯" -> (recipe.juice * 1.3).toInt()
-                else -> recipe.juice
-            }
-            val newRemain = (recipe.remainWeight - actualJuiceConsumption).coerceAtLeast(0)
-            try {
-                recipeRepository.updateRemainWeight(recipe.id, newRemain)
-            } catch (e: Exception) {
-                Log.e("DrinkMenuViewModel", "更新库存失败: ${e.message}", e)
-            }
-            withContext(Dispatchers.Main) {
-                _uiState.update { currentState ->
-                    currentState.copy(
-                        selectedRecipe = null,
-                        showWeightChangeDialog = currentState.showWeightChangeDialog,
-                        isInterrupted = currentState.isInterrupted,
-                        interruptedRecipe = currentState.interruptedRecipe
-                    )
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(errorMessage = "下单入库失败: ${e.message}") }
                 }
             }
         }

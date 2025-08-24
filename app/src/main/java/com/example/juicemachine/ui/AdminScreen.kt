@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import com.example.juicemachine.R
 import com.example.juicemachine.data.database.Recipe
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -173,11 +174,26 @@ private fun RecipeRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
+        if (!recipe.imageUri.isNullOrEmpty()) {
+        coil.compose.AsyncImage(
+            model = coil.request.ImageRequest.Builder(LocalContext.current)
+                .data(recipe.imageUri)
+                .crossfade(true)
+                .build(),
+            contentDescription = recipe.name,
+            modifier = Modifier.size(64.dp),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            error = defaultPainter,
+            fallback = defaultPainter
+        )
+        } else {
         Image(
-            painter = painterResource(id = getDrawableForRecipe(recipe.name)),
+            painter = defaultPainter,
             contentDescription = recipe.name,
             modifier = Modifier.size(64.dp)
         )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = recipe.name, style = MaterialTheme.typography.titleMedium)
             Text(text = "水: ${recipe.water}g, 果汁: ${recipe.juice}g", style = MaterialTheme.typography.bodyMedium)

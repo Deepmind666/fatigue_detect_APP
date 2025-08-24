@@ -21,6 +21,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.widget.Toast
 import android.os.Build
+import android.annotation.SuppressLint
 // 新增：USB权限与设备广播
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
@@ -441,6 +442,7 @@ class HardwareManager(
             onStatusListener?.invoke("未连接")
         }
     }
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private fun registerUsbReceiver() {
         if (usbReceiverRegistered) return
         usbReceiver = object : BroadcastReceiver() {

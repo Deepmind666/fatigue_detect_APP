@@ -47,6 +47,7 @@ import com.example.juicemachine.data.database.CupConfig
 import com.example.juicemachine.data.database.Recipe
 import com.example.juicemachine.ui.theme.JuiceMachineTheme
 import com.example.juicemachine.ui.viewmodel.DrinkMenuUiState
+import androidx.core.net.toUri
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,7 +155,7 @@ fun EditRecipeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         // 优先显示新选择的图片，其次显示已保存的图片
-                        val imageToShow = selectedImageUri ?: recipe.imageUri?.let { Uri.parse(it) }
+                        val imageToShow = selectedImageUri ?: recipe.imageUri?.let { it.toUri() }
                         
                         if (imageToShow != null) {
                             // 显示选中的图片 - 使用自适应缩放
