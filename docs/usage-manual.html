@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>软件使用说明书（门店版）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* 版式与Word页眉/页脚设置 */
+  @page Section1 {
+    size: 210mm 297mm; /* A4 */
+    margin: 20mm;
+    mso-header: h1; /* 关联页眉 */
+    mso-footer: f1; /* 关联页脚 */
+  }
+  div.Section1 { page: Section1; }
+  div.MsoHeader { mso-element: header; }
+  div.MsoFooter { mso-element: footer; }
+
+  body { font-family: "Microsoft YaHei", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #222; }
+  h1, h2, h3, h4 { color: #111; margin: 0.6em 0 0.4em; }
+  h1 { font-size: 22pt; }
+  h2 { font-size: 16pt; }
+  h3 { font-size: 13pt; }
+  p { line-height: 1.6; margin: 0.4em 0; }
+  ul { margin: 0.2em 0 0.8em 1.2em; }
+  li { margin: 0.2em 0; }
+  .tip { color:#555; font-size: 10.5pt; }
+  .hr { border: 0; border-top: 1px solid #e5e5e5; margin: 12px 0; }
+  .figure { border: 1px dashed #c7c7c7; padding: 8px; margin: 10px 0 16px; }
+  .figcap { color:#666; font-size: 10.5pt; margin-top: 6px; }
+  .figimg { display:block; width:100%; max-width: 680px; height:auto; background: #fafafa; border: 1px solid #eee; }
+  .header-wrap, .footer-wrap { width: 100%; }
+  .header-table { width: 100%; border-collapse: collapse; }
+  .header-table td { vertical-align: middle; }
+  .header-title { text-align: right; font-weight: 600; font-size: 11pt; color:#333; }
+  .footer-table { width: 100%; border-collapse: collapse; font-size: 10pt; color:#666; }
+  .footer-left { text-align: left; }
+  .footer-right { text-align: right; }
+  .icon { height: 20px; }
+</style>
+</head>
+<body>
+
+<!-- 页眉（Word可识别） -->
+<div class="MsoHeader" id="h1">
+  <div class="header-wrap">
+    <table class="header-table">
+      <tr>
+        <td style="text-align:left;">
+          <img class="icon" src="images/app-icon.svg" alt="App 图标" />
+        </td>
+        <td class="header-title">软件使用说明书（门店版）</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<!-- 页脚（Word可识别） -->
+<div class="MsoFooter" id="f1">
+  <div class="footer-wrap">
+    <table class="footer-table">
+      <tr>
+        <td class="footer-left">果然新鲜</td>
+        <td class="footer-right">第 <span style='mso-field-code:" PAGE "'></span> 页 / 共 <span style='mso-field-code:" NUMPAGES "'></span> 页</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<!-- 正文 -->
+<div class="Section1">
+  <h1>软件使用说明书（门店版）</h1>
+  <p class="tip">目标读者：门店操作员、管理人员（含非技术背景）<br />
+  文档定位：仅包含“如何使用软件”的操作说明；不包含技术架构、开发、部署等内容。<br />
+  页眉/页脚：Word 中打开后，将显示页眉（左：APP 图标；右：文档标题）与页脚（左：应用名称；右：页码）。</p>
+  <hr class="hr"/>
+
+  <h2>1. 快速上手</h2>
+  <ol>
+    <li>打开应用，进入主界面（饮品菜单）。</li>
+    <li>选择饮品 → 在“自定义弹窗”中选择杯型（如：中杯/大杯）和加冰（如：正常冰）→ 确认下单。</li>
+    <li>查看经营数据：进入“统计”页，使用右上“自定义范围”选择时间段，查看图表与汇总。</li>
+    <li>遇到提示（如“重量变化”或错误提示），按弹窗说明操作即可。</li>
+  </ol>
+  <p class="tip">提示：建议在网络良好、设备电量充足的情况下操作。</p>
+  <hr class="hr"/>
+
+  <h2>2. 界面与功能说明</h2>
+
+  <h3>2.1 主界面（饮品菜单）</h3>
+  <p>用途：展示所有可售饮品，进行点单入口。</p>
+  <ul>
+    <li>左上角：售罄标志（饮品售罄时出现）。</li>
+    <li>右上角：价格标签；非售罄时，价格下方可能显示“库存低”徽标（不会与“售罄”重叠）。</li>
+    <li>点击某饮品：打开“自定义弹窗”。</li>
+  </ul>
+  <div class="figure">
+    <strong>图 2-1a 主界面总览</strong>
+    <div class="figcap">文件名：images/fig-2-1a-主界面-售罄与库存低示例.png（请放置对应截图）</div>
+    <img class="figimg" src="images/fig-2-1a-主界面-售罄与库存低示例.png" alt="主界面-售罄与库存低示例" />
+  </div>
+
+  <h3>2.2 点单与自定义</h3>
+  <p>用途：选择杯型与其他选项，确认下单。</p>
+  <ul>
+    <li>杯型：中杯/大杯。</li>
+    <li>加冰：正常冰/少冰/去冰（以实际界面为准）。</li>
+    <li>确认下单：点击确认按钮。</li>
+  </ul>
+  <div class="figure">
+    <strong>图 2-2a 选择饮品并打开自定义弹窗</strong>
+    <div class="figcap">文件名：images/fig-2-2a-选择饮品-打开自定义弹窗.png</div>
+    <img class="figimg" src="images/fig-2-2a-选择饮品-打开自定义弹窗.png" alt="选择饮品-打开自定义弹窗" />
+  </div>
+  <div class="figure">
+    <strong>图 2-2b 自定义弹窗：选择中杯与正常冰</strong>
+    <div class="figcap">文件名：images/fig-2-2b-自定义弹窗-选择中杯与正常冰.png</div>
+    <img class="figimg" src="images/fig-2-2b-自定义弹窗-选择中杯与正常冰.png" alt="自定义弹窗-选择中杯与正常冰" />
+  </div>
+
+  <h3>2.3 登录与权限（如流程需要）</h3>
+  <p>用途：登录账号获取相应权限。</p>
+  <ul>
+    <li>登录：输入账号/密码或使用既定方式登录。</li>
+    <li>错误提示：根据提示更正输入。</li>
+  </ul>
+  <div class="figure">
+    <strong>图 2-3 登录弹窗（错误状态示例）</strong>
+    <div class="figcap">文件名：images/fig-2-3-登录弹窗-错误状态示例.png</div>
+    <img class="figimg" src="images/fig-2-3-登录弹窗-错误状态示例.png" alt="登录弹窗-错误状态示例" />
+  </div>
+
+  <h3>2.4 异常与提示</h3>
+  <p>用途：在异常情况下的处理。</p>
+  <ul>
+    <li>重量变化提示：出现“继续/重启”两个选项，请根据实际情况选择；不确定时建议联系管理员。</li>
+    <li>错误提示：出现非致命错误提示时，按提示进行重试或更正输入。</li>
+  </ul>
+  <div class="figure">
+    <strong>图 2-4a 重量变化弹窗（继续/重启）</strong>
+    <div class="figcap">文件名：images/fig-2-4a-重量变化弹窗-继续与重启.png</div>
+    <img class="figimg" src="images/fig-2-4a-重量变化弹窗-继续与重启.png" alt="重量变化弹窗-继续与重启" />
+  </div>
+  <div class="figure">
+    <strong>图 2-4b 错误提示对话框</strong>
+    <div class="figcap">文件名：images/fig-2-4b-错误提示对话框-示例.png</div>
+    <img class="figimg" src="images/fig-2-4b-错误提示对话框-示例.png" alt="错误提示对话框-示例" />
+  </div>
+
+  <h3>2.5 销售统计</h3>
+  <p>用途：查看营收与销量走势、热门商品、库存等经营数据。</p>
+
+  <h4>2.5.1 日期范围选择</h4>
+  <ul>
+    <li>点击“自定义范围”打开 Material 3 日期范围选择器。</li>
+    <li>快捷范围：最近7天、最近30天、本周、本月、上月。</li>
+    <li>限制：不允许选择未来日期。</li>
+  </ul>
+  <div class="figure">
+    <strong>图 2.5.1a 日期范围选择器（展开 + 快捷范围）</strong>
+    <div class="figcap">文件名：images/fig-2-5-1a-日期范围选择器-展开与快捷范围.png</div>
+    <img class="figimg" src="images/fig-2-5-1a-日期范围选择器-展开与快捷范围.png" alt="日期范围选择器-展开与快捷范围" />
+  </div>
+  <div class="figure">
+    <strong>图 2.5.1b 应用范围后标题显示所选范围</strong>
+    <div class="figcap">文件名：images/fig-2-5-1b-已应用日期范围-标题展示.png</div>
+    <img class="figimg" src="images/fig-2-5-1b-已应用日期范围-标题展示.png" alt="已应用日期范围-标题展示" />
+  </div>
+
+  <h4>2.5.2 概览卡片</h4>
+  <p>展示：总营收、总订单、今日营收、今日订单等。</p>
+  <div class="figure">
+    <strong>图 2.5.2 概览卡片</strong>
+    <div class="figcap">文件名：images/fig-2-5-2-概览卡片-营收与订单.png</div>
+    <img class="figimg" src="images/fig-2-5-2-概览卡片-营收与订单.png" alt="概览卡片-营收与订单" />
+  </div>
+
+  <h4>2.5.3 销售趋势折线图</h4>
+  <ul>
+    <li>X 轴为日期（缺失日期已补零以保持连续），Y 轴为数值。</li>
+    <li>支持长按/点击查看 Tooltip；图例可点击显隐特定系列。</li>
+  </ul>
+  <div class="figure">
+    <strong>图 2.5.3a 销售趋势折线图（正常显示）</strong>
+    <div class="figcap">文件名：images/fig-2-5-3a-折线图-正常显示.png</div>
+    <img class="figimg" src="images/fig-2-5-3a-折线图-正常显示.png" alt="折线图-正常显示" />
+  </div>
+  <div class="figure">
+    <strong>图 2.5.3b 销售趋势折线图（Tooltip 展示）</strong>
+    <div class="figcap">文件名：images/fig-2-5-3b-折线图-Tooltip展示.png</div>
+    <img class="figimg" src="images/fig-2-5-3b-折线图-Tooltip展示.png" alt="折线图-Tooltip展示" />
+  </div>
+
+  <h4>2.5.4 按饮品趋势（总/中杯/大杯）</h4>
+  <p>每个饮品包含三条系列（总、中杯、大杯）；可通过图例点击隐藏/显示。</p>
+  <div class="figure">
+    <strong>图 2.5.4a 按饮品趋势（全部系列显示）</strong>
+    <div class="figcap">文件名：images/fig-2-5-4a-饮品趋势-全部系列显示.png</div>
+    <img class="figimg" src="images/fig-2-5-4a-饮品趋势-全部系列显示.png" alt="饮品趋势-全部系列显示" />
+  </div>
+  <div class="figure">
+    <strong>图 2.5.4b 按饮品趋势（隐藏“总”系列后）</strong>
+    <div class="figcap">文件名：images/fig-2-5-4b-饮品趋势-隐藏总系列后显示.png</div>
+    <img class="figimg" src="images/fig-2-5-4b-饮品趋势-隐藏总系列后显示.png" alt="饮品趋势-隐藏总系列后显示" />
+  </div>
+
+  <h4>2.5.5 其他统计卡片</h4>
+  <p>热销商品、按杯型统计、库存消耗等模块展示核心数据。</p>
+  <div class="figure">
+    <strong>图 2.5.5a 热销商品</strong>
+    <div class="figcap">文件名：images/fig-2-5-5a-热销商品卡片-示例.png</div>
+    <img class="figimg" src="images/fig-2-5-5a-热销商品卡片-示例.png" alt="热销商品卡片-示例" />
+  </div>
+  <div class="figure">
+    <strong>图 2.5.5b 各饮品按杯型统计</strong>
+    <div class="figcap">文件名：images/fig-2-5-5b-按杯型统计卡片-示例.png</div>
+    <img class="figimg" src="images/fig-2-5-5b-按杯型统计卡片-示例.png" alt="按杯型统计卡片-示例" />
+  </div>
+  <div class="figure">
+    <strong>图 2.5.5c 库存消耗统计</strong>
+    <div class="figcap">文件名：images/fig-2-5-5c-库存消耗统计卡片-示例.png</div>
+    <img class="figimg" src="images/fig-2-5-5c-库存消耗统计卡片-示例.png" alt="库存消耗统计卡片-示例" />
+  </div>
+
+  <h4>2.5.6 空数据/异常保护</h4>
+  <p>当所选日期范围内没有数据时，界面会安全显示（不崩溃），并提示无数据。</p>
+  <div class="figure">
+    <strong>图 2.5.6 空数据示例</strong>
+    <div class="figcap">文件名：images/fig-2-5-6-空数据示例.png</div>
+    <img class="figimg" src="images/fig-2-5-6-空数据示例.png" alt="空数据示例" />
+  </div>
+
+  <hr class="hr"/>
+  <h2>3. 常见问题（FAQ）</h2>
+  <ul>
+    <li>无数据如何处理？请检查日期范围是否过于狭窄或数据未上报；尝试切换到“最近7天”等快捷范围。</li>
+    <li>提示“重量变化”如何选择？按实际情况选择“继续/重启”；如不确定，建议联系管理员确认。</li>
+    <li>网络异常怎么办？检查 Wi‑Fi/移动网络，稍后重试；问题持续请联系运维支持。</li>
+  </ul>
+
+  <hr class="hr"/>
+  <h2>4. 截图与图片放置</h2>
+  <ul>
+    <li>请将所有截图放入：docs/images/ 目录。</li>
+    <li>命名建议：使用“图编号-界面-核心要素”的规则，中文直白，便于快速识别（示例见各小节）。</li>
+    <li>APP 图标文件：docs/images/app-icon.svg（已放置，可后续替换为正式图标）。</li>
+  </ul>
+
+  <p class="tip">在 Word 中打开本 HTML：文件 → 打开 → 选择 docs/usage-manual.html；查看无误后可“另存为” .docx。</p>
+</div>
+
+</body>
+</html>
