@@ -1,15 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
-  <rect width="100%" height="100%" fill="#f5f7fa"/>
-  <!-- 弹窗 -->
-  <rect x="300" y="160" width="600" height="360" rx="16" fill="#ffffff" stroke="#e5e5e5"/>
-  <text x="330" y="210" font-family="Segoe UI, Microsoft YaHei, Arial" font-size="22" fill="#333">重量变化</text>
-  <text x="330" y="244" font-family="Segoe UI, Microsoft YaHei, Arial" font-size="14" fill="#666">检测到重量变化，是否继续？</text>
-
-  <!-- 继续按钮 -->
-  <rect x="360" y="380" width="180" height="44" rx="8" fill="#52c41a"/>
-  <text x="428" y="409" font-size="16" fill="#fff" font-family="Segoe UI, Microsoft YaHei, Arial">继续</text>
-
-  <!-- 重启按钮 -->
-  <rect x="620" y="380" width="180" height="44" rx="8" fill="#ff4d4f"/>
-  <text x="688" y="409" font-size="16" fill="#fff" font-family="Segoe UI, Microsoft YaHei, Arial">重启</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675"><defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e7eb" stroke-width="1"/></pattern></defs><rect width="100%" height="100%" fill="#f9fafb"/><rect x="24" y="24" width="1152" height="627" rx="16" fill="url(#grid)" stroke="#d1d5db"/></svg>
