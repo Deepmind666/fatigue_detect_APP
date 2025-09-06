@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+  <rect width="100%" height="100%" fill="#fafafa"/>
+  <rect x="40" y="40" width="1120" height="80" rx="12" fill="#ffffff" stroke="#e5e5e5"/>
+  <text x="60" y="92" font-family="Segoe UI, Microsoft YaHei, Arial" font-size="28" fill="#333">主界面（示意）</text>
+
+  <!-- 示例饮品卡片网格 -->
+  <g font-family="Segoe UI, Microsoft YaHei, Arial" font-size="14">
+    <!-- 卡片1 售罄 -->
+    <rect x="60" y="160" width="260" height="180" rx="14" fill="#fff" stroke="#e6e6e6"/>
+    <rect x="60" y="160" width="82" height="28" rx="6" fill="#ff4d4f"/>
+    <text x="72" y="180" font-size="14" fill="#fff">售罄</text>
+    <rect x="268" y="184" width="40" height="24" rx="4" fill="#1677ff"/>
+    <text x="273" y="200" font-size="12" fill="#fff">¥18</text>
+
+    <!-- 卡片2 库存低 -->
+    <rect x="340" y="160" width="260" height="180" rx="14" fill="#fff" stroke="#e6e6e6"/>
+    <rect x="548" y="184" width="40" height="24" rx="4" fill="#1677ff"/>
+    <text x="553" y="200" font-size="12" fill="#fff">¥22</text>
+    <rect x="504" y="212" width="78" height="22" rx="4" fill="#faad14"/>
+    <text x="508" y="228" font-size="12" fill="#fff">库存低</text>
+
+    <!-- 其他卡片占位 -->
+    <rect x="620" y="160" width="260" height="180" rx="14" fill="#fff" stroke="#e6e6e6" opacity="0.8"/>
+    <rect x="900" y="160" width="260" height="180" rx="14" fill="#fff" stroke="#e6e6e6" opacity="0.8"/>
+  </g>
+
+  <text x="60" y="370" font-family="Segoe UI, Microsoft YaHei, Arial" font-size="12" fill="#666">说明：左上角“售罄”位于卡片左上角；“库存低”徽标与“售罄”不重叠。</text>
+</svg>

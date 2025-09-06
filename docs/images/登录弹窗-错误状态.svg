@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <rect width="100%" height="100%" fill="#f7f7f7"/>
+  <!-- 弹窗 -->
+  <rect x="360" y="140" width="480" height="420" rx="16" fill="#ffffff" stroke="#e5e5e5"/>
+  <text x="390" y="190" font-family="Segoe UI, Microsoft YaHei, Arial" font-size="22" fill="#333">登录</text>
+  <text x="390" y="236" font-family="Segoe UI, Microsoft YaHei, Arial" font-size="14" fill="#666">账号</text>
+  <rect x="390" y="246" width="420" height="36" rx="6" fill="#fff" stroke="#d9d9d9"/>
+  <text x="396" y="270" font-size="12" fill="#bbb" font-family="Segoe UI, Microsoft YaHei, Arial">请输入账号</text>
+  <text x="390" y="306" font-family="Segoe UI, Microsoft YaHei, Arial" font-size="14" fill="#666">密码</text>
+  <rect x="390" y="316" width="420" height="36" rx="6" fill="#fff" stroke="#d9d9d9"/>
+  
+  <!-- 错误提示 -->
+  <rect x="390" y="368" width="420" height="36" rx="6" fill="#fff1f0" stroke="#ffa39e"/>
+  <text x="400" y="391" font-size="13" fill="#cf1322" font-family="Segoe UI, Microsoft YaHei, Arial">账号或密码错误，请重试</text>
+
+  <!-- 操作按钮 -->
+  <rect x="610" y="464" width="200" height="40" rx="8" fill="#1677ff"/>
+  <text x="674" y="491" font-size="16" fill="#fff" font-family="Segoe UI, Microsoft YaHei, Arial">登录</text>
+</svg>
