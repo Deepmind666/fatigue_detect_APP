@@ -1,11 +1,17 @@
 package com.example.juicemachine.ui
 
+import android.os.SystemClock
 import android.util.Log
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -15,114 +21,171 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.example.juicemachine.R
-import com.example.juicemachine.data.database.CupConfig
 import com.example.juicemachine.data.database.Recipe
-import com.example.juicemachine.ui.theme.JuiceMachineTheme
 import com.example.juicemachine.ui.theme.AccentOrange
 import com.example.juicemachine.ui.viewmodel.DrinkMenuUiState
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.animation.core.*
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.StopCircle
+import com.example.juicemachine.ui.theme.FreshGreen
+import com.example.juicemachine.ui.theme.FreshOrange
+import com.example.juicemachine.ui.theme.FreshRed
+import com.example.juicemachine.ui.model.IceMode
 
 private fun getDrawableForRecipe(recipeName: String): Int {
     return when (recipeName) {
-       "茉莉雪芽" -> R.drawable.mo_li_xue_ya
-       "柳橙百香" -> R.drawable.liu_cheng_bai_xiang
-       "满杯桑葚" -> R.drawable.man_bei_sang_shen 
+        "茉莉雪芽" -> R.drawable.mo_li_xue_ya_2
+        "柳橙百香" -> R.drawable.liu_cheng_bai_xiang
+        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang
+        // 兼容旧名称：满杯桑葚 已被鸭屎香柠檬茶替换
+        "满杯桑葚" -> R.drawable.ya_shi_xiang
         else -> R.drawable.placeholder
     }
 }
 
 @Composable
-fun DrinkMenuScreen(
-    uiState: DrinkMenuUiState,
-    onRecipeClick: (Recipe) -> Unit,
-    onHeaderLongClick: () -> Unit,
-    onDismissDialog: () -> Unit,
-    onConfirmDialog: (Recipe, String, Boolean) -> Unit,
-    onLoginAttempt: (String) -> Unit,
-    onDismissError: () -> Unit,
-    onContinueRecipe: () -> Unit,         // 新增
-    onRestartRecipe: () -> Unit           // 新增
+    fun DrinkMenuScreen(
+        uiState: DrinkMenuUiState,
+        onRecipeClick: (Recipe) -> Unit,
+        onHeaderLongClick: () -> Unit,
+        onWaterOnlyToggle: () -> Unit,
+        onEmergencyStop: () -> Unit,
+        onDismissDialog: () -> Unit,
+        onConfirmDialog: (Recipe, String, IceMode) -> Unit,
+        onLoginAttempt: (String) -> Unit,
+        onDismissError: () -> Unit,
+        onContinueRecipe: () -> Unit,    // 预留
+        onRestartRecipe: () -> Unit,      // 预留
+        onDismissWeighResult: () -> Unit,
+        onCancelWeighWaiting: () -> Unit,
+    // 无操作超时返回广告页
+    onTimeoutToAds: () -> Unit = {},
+    timeoutMs: Long = 60_000L,
+    onResetStock: (Recipe) -> Unit = {}
 ) {
-    Box(Modifier.fillMaxSize()) {
+    // 新增：用于展示全局提示的 Snackbar
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // 新增：全局交互监听与超时
+    var lastInteraction by remember { mutableStateOf(SystemClock.uptimeMillis()) }
+    LaunchedEffect(
+        timeoutMs,
+        uiState.selectedRecipe,
+        uiState.showLoginDialog,
+        uiState.showWeighWaitingDialog,
+        uiState.showWeightChangeDialog,
+        uiState.weighResultMessage,
+        uiState.isWaterOnlyActive
+    ) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            val now = SystemClock.uptimeMillis()
+            val interacting = (
+                uiState.selectedRecipe != null ||
+                uiState.showLoginDialog ||
+                uiState.showWeighWaitingDialog ||
+                uiState.showWeightChangeDialog ||
+                uiState.weighResultMessage != null ||
+                // 加水期间视为持续交互：暂停广告页计时
+                uiState.isWaterOnlyActive
+            )
+            if (interacting) {
+                // 弹窗或对话框可见时认为用户仍在交互，持续重置计时
+                lastInteraction = now
+                continue
+            }
+            if (now - lastInteraction >= timeoutMs) {
+                onTimeoutToAds()
+                break
+            }
+        }
+    }
+
+    // 新增：停止只出水后，重置一次广告页倒计时
+    LaunchedEffect(uiState.isWaterOnlyActive) {
+        if (!uiState.isWaterOnlyActive) {
+            lastInteraction = SystemClock.uptimeMillis()
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            // 捕获任意触摸事件以重置计时
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        lastInteraction = SystemClock.uptimeMillis()
+                        try { tryAwaitRelease() } finally { lastInteraction = SystemClock.uptimeMillis() }
+                    },
+                    onTap = { lastInteraction = SystemClock.uptimeMillis() },
+                    onLongPress = { lastInteraction = SystemClock.uptimeMillis() },
+                    onDoubleTap = { lastInteraction = SystemClock.uptimeMillis() }
+                )
+            }
+    ) {
         Column(Modifier.fillMaxSize()) {
             Header(
                 onLongClick = onHeaderLongClick,
-                temperature = uiState.temperature
+                onWaterOnlyToggle = onWaterOnlyToggle,
+                onEmergencyStop = onEmergencyStop,
+                isWaterOnlyActive = uiState.isWaterOnlyActive
             )
             DrinkGrid(
                 recipes = uiState.recipes,
                 onRecipeSelected = onRecipeClick,
+                onResetStock = onResetStock,
                 modifier = Modifier.weight(1f)
             )
         }
 
-        // The bottom action buttons are removed as they will be moved to the Admin screen.
-        /*
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                ActionButton(text = "自动加水", onClick = onAddWater)
-                ActionButton(text = "温度测试", onClick = onTestTemp)
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                ActionButton(text = "一键清洗", onClick = onClean)
-                ActionButton(text = "开始制作", onClick = onMakeJuice, isPrimary = true)
+        // 其他错误消息用 Snackbar 展示 - 仅在没有重量异常弹窗时触发
+        val showDialog = uiState.showWeightChangeDialog
+        LaunchedEffect(uiState.errorMessage, showDialog) {
+            val msg = uiState.errorMessage
+            if (!showDialog && msg != null) {
+                snackbarHostState.showSnackbar(message = msg, withDismissAction = true)
+                onDismissError()
             }
         }
-        */
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+        )
     }
 
-    uiState.selectedRecipe?.let { selectedRecipe ->
+    uiState.selectedRecipe?.let { selected ->
         JuiceCustomizationDialog(
-            recipe = selectedRecipe,
-            onConfirm = { cupSize, withIce ->
-                onConfirmDialog(selectedRecipe, cupSize, withIce)
-            },
-            onDismiss = onDismissDialog
+            recipe = selected,
+            onConfirm = { cup, mode -> onConfirmDialog(selected, cup, mode) },
+            onDismiss = onDismissDialog,
+            onAnyInteraction = { lastInteraction = SystemClock.uptimeMillis() }
         )
     }
 
@@ -134,51 +197,66 @@ fun DrinkMenuScreen(
         )
     }
 
-    // 新增：重量变化弹窗 - 最高优先级
-    val showDialog = uiState.showWeightChangeDialog
-    android.util.Log.e("DrinkMenuScreen", "=== 检查弹窗状态: showWeightChangeDialog=$showDialog ===")
-    
-    // 其他错误消息弹窗 - 只在没有重量异常弹窗时显示
-    if (!showDialog && uiState.errorMessage != null) {
-        AlertDialog(
-            onDismissRequest = { onDismissError() },
-            title = { Text("提示") },
-            text = { Text(uiState.errorMessage) },
-            confirmButton = {
-                Button(onClick = { onDismissError() }) { Text("确定") }
+    // 新增：称重等待与结果弹窗（全局）
+    if (uiState.showWeighWaitingDialog) {
+        Dialog(onDismissRequest = onCancelWeighWaiting) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(12.dp),
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = {
+                            lastInteraction = SystemClock.uptimeMillis()
+                            try { tryAwaitRelease() } finally { lastInteraction = SystemClock.uptimeMillis() }
+                        },
+                        onTap = { lastInteraction = SystemClock.uptimeMillis() },
+                        onLongPress = { lastInteraction = SystemClock.uptimeMillis() },
+                        onDoubleTap = { lastInteraction = SystemClock.uptimeMillis() }
+                    )
+                }
+            ) {
+                Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text("正在称重，请稍候…", style = MaterialTheme.typography.bodyMedium)
+                }
             }
+        }
+    }
+    uiState.weighResultMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = onDismissWeighResult,
+            title = { Text("称重结果") },
+            text = { Text(msg) },
+            confirmButton = { Button(onClick = onDismissWeighResult) { Text("知道了") } }
         )
     }
-    
-    // 重量异常弹窗已在 AppNavigation 全局处理，这里不再重复显示
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
+// 新增：显式 OptIn 实验性 API
+@OptIn(ExperimentalFoundationApi::class)
 fun Header(
     onLongClick: () -> Unit,
-    temperature: String
+    onWaterOnlyToggle: () -> Unit,
+    onEmergencyStop: () -> Unit,
+    isWaterOnlyActive: Boolean
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 68.dp)
-            .combinedClickable(
-                onClick = {},
-                onLongClick = onLongClick
-            ),
+            .combinedClickable(onClick = {}, onLongClick = onLongClick),
         shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
                     Brush.horizontalGradient(
-                        colors = listOf(
+                        listOf(
                             MaterialTheme.colorScheme.primary,
                             MaterialTheme.colorScheme.primaryContainer
                         )
@@ -187,34 +265,20 @@ fun Header(
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 品牌logo区域
                 Card(
                     modifier = Modifier.size(30.dp),
                     shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.White.copy(alpha = 0.2f)
-                    )
+                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.2f))
                 ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "🍊",
-                            fontSize = 18.sp // 减小emoji大小
-                        )
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(text = "🍊", fontSize = 18.sp)
                     }
                 }
-                
-                Spacer(modifier = Modifier.width(8.dp))
-                
-                // 品牌名称
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
                     Text(
                         text = "果然新鲜",
                         style = MaterialTheme.typography.headlineSmall,
@@ -229,24 +293,28 @@ fun Header(
                         color = Color.White.copy(alpha = 0.8f)
                     )
                 }
-                
-                Spacer(Modifier.weight(1f))
-
-                // 温度显示区域
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.White.copy(alpha = 0.2f)
-                    )
-                ) {
-                    val displayTemp = if (temperature == "未连接" || temperature.isBlank()) "--°" else temperature
-                    Text(
-                        text = "温度: $displayTemp",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
+                // 右侧操作按钮：急停 与 只出水
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // 急停：仅保留三角警示图标（不显示文字）
+                    IconButton(
+                        onClick = onEmergencyStop,
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.15f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = "急停",
+                            tint = FreshRed,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    // 只出水：水滴图标，高亮时用绿色，未激活用浅色
+                    IconButton(onClick = onWaterOnlyToggle, colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.15f))) {
+                        Icon(
+                            imageVector = Icons.Filled.WaterDrop,
+                            contentDescription = "只出水",
+                            tint = if (isWaterOnlyActive) FreshGreen else Color.White.copy(alpha = 0.9f)
+                        )
+                    }
                 }
             }
         }
@@ -257,29 +325,66 @@ fun Header(
 fun DrinkGrid(
     recipes: List<Recipe>,
     onRecipeSelected: (Recipe) -> Unit,
+    onResetStock: (Recipe) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 220.dp),
-        modifier = modifier
-            .padding(horizontal = 8.dp, vertical = 6.dp)
-            .fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 12.dp)
-    ) {
-        items(recipes) { recipe ->
-            DrinkCard(recipe, onRecipeSelected)
+    val hPadding = 8.dp
+    val vPadding = 6.dp
+
+    if (recipes.size <= 3) {
+        // 严格三等分：单行平均分成3块，并让卡片高度占满可用区域
+        Box(
+            modifier = modifier
+                .padding(horizontal = hPadding, vertical = vPadding)
+                .fillMaxSize()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                recipes.forEach { recipe ->
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        DrinkCard(recipe = recipe, onRecipeSelected = onRecipeSelected, onResetStock = onResetStock, expandToHeight = true)
+                    }
+                }
+                // 若少于3个，使用占位空格保持三等分
+                repeat((3 - recipes.size).coerceAtLeast(0)) {
+                    Spacer(modifier = Modifier.weight(1f).fillMaxHeight())
+                }
+            }
+        }
+    } else {
+        // 多于3个：保持三列网格与滚动
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            modifier = modifier
+                .padding(horizontal = hPadding, vertical = vPadding)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 12.dp)
+        ) {
+            items(recipes, key = { it.id }) { recipe ->
+                DrinkCard(recipe = recipe, onRecipeSelected = onRecipeSelected, onResetStock = onResetStock)
+            }
         }
     }
 }
 
 @Composable
-fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
+fun DrinkCard(
+    recipe: Recipe,
+    onRecipeSelected: (Recipe) -> Unit,
+    onResetStock: (Recipe) -> Unit = {},
+    expandToHeight: Boolean = false
+) {
+    val isSoldOut = recipe.currentRemainingWeight < recipe.juice
+    val isLowStock = !isSoldOut && (recipe.currentRemainingWeight < recipe.juice * 3)
+    // 计算默认占位图与库存比例
     val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
-
-    val isSoldOut = recipe.remainWeight < recipe.juice
-    val isLowStock = !isSoldOut && (recipe.remainWeight / recipe.juice) in 1..3
+    val stockRatio = if (recipe.defaultRemainingWeight <= 0) 0f else
+        (recipe.currentRemainingWeight.toFloat() / recipe.defaultRemainingWeight.toFloat()).coerceIn(0f, 1f)
+    var showResetDialog by remember { mutableStateOf(false) }
 
     Card(
         onClick = { onRecipeSelected(recipe) },
@@ -295,9 +400,9 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
         )
     ) {
         Box(
-            modifier = Modifier.aspectRatio(0.75f)
+            modifier = if (expandToHeight) Modifier.fillMaxSize() else Modifier.aspectRatio(0.75f)
         ) {
-            // Background Image - 优先显示保存的图片，否则显示默认图片
+            // 背景图：优先显示本地保存图片
             if (!recipe.imageUri.isNullOrEmpty()) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
@@ -324,7 +429,7 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
                 )
             }
 
-            // Overlay: price & labels
+            // 价格与标签
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -333,23 +438,46 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
                 horizontalAlignment = Alignment.End
             ) {
                 PriceTag(price = recipe.price)
+                // 调整：移除这里的“鲜料重置”按钮，避免与价格区紧贴
+                // 低库存提醒
                 if (!isSoldOut && isLowStock) {
                     LowStockBadge()
                 }
             }
+            // 新位置：将“鲜料重置”按钮放置在顶部居中，介于左上售罄标记与右上价格区域之间
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp)
+            ) {
+                // 仅在售罄时显示“鲜料重置”按钮
+                if (isSoldOut) {
+                    ResetStockButton(onLongPress = { showResetDialog = true })
+                }
+            }
+            if (showResetDialog) {
+                ResetStockDialog(
+                    recipe = recipe,
+                    onConfirm = {
+                        onResetStock(recipe)
+                        showResetDialog = false
+                    },
+                    onDismiss = { showResetDialog = false }
+                )
+            }
 
-            // 售罄标志固定到左上角，避免出现在价格下方
+            // 售罄标记固定左上角
             if (isSoldOut) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(8.dp)
-                ) {
-                    SoldOutTag()
-                }
+                ) { SoldOutTag() }
             }
+            // 移除售罄时的“鲜料重置”按钮
 
-            // Title and subtitle
+
+            // （删除中间悬浮标题）
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -359,56 +487,52 @@ fun DrinkCard(recipe: Recipe, onRecipeSelected: (Recipe) -> Unit) {
             ) {
                 Text(
                     text = recipe.name,
-                    style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
-
-                Spacer(Modifier.height(8.dp))
-
-                // 库存状态条和剩余重量
+                Spacer(Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 库存状态条
-                    val stockRatio = (recipe.remainWeight.toFloat() / (recipe.juice * 10)).coerceIn(0f, 1f)
+                    val stockRatio = if (recipe.defaultRemainingWeight <= 0) 0f else
+                        (recipe.currentRemainingWeight.toFloat() / recipe.defaultRemainingWeight.toFloat()).coerceIn(0f, 1f)
                     val stockColor = when {
-                        stockRatio >= 0.5f -> Color(0xFF4CAF50) // 绿色
-                        stockRatio >= 0.1f -> MaterialTheme.colorScheme.primary // 橙色
-                        else -> Color(0xFFF44336) // 红色
+                        stockRatio >= 0.5f -> Color(0xFF4CAF50)
+                        stockRatio >= 0.1f -> MaterialTheme.colorScheme.primary
+                        else -> Color(0xFFF44336)
                     }
-
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(6.dp)
-                            .background(Color.White.copy(alpha = 0.3f), RoundedCornerShape(3.dp))
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color.White.copy(alpha = 0.3f))
                     ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(stockRatio)
                                 .fillMaxHeight()
-                                .background(stockColor, RoundedCornerShape(3.dp))
+                                .fillMaxWidth(stockRatio)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(stockColor)
                         )
                     }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // 剩余重量 - 放在状态条右边
+                    Spacer(Modifier.width(8.dp))
+                    val cups = if (recipe.juice <= 0) 0 else recipe.currentRemainingWeight / recipe.juice
                     Text(
-                        text = "${recipe.remainWeight}g",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontSize = 14.sp,
+                        text = "约${cups}杯",
                         color = Color.White,
-                        fontWeight = FontWeight.Medium
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1
                     )
                 }
             }
         }
-    }
+}
 }
 
 @Composable
@@ -432,8 +556,7 @@ fun PriceTag(price: Int) {
 @Composable
 fun SoldOutTag() {
     Card(
-        modifier = Modifier
-            .padding(8.dp),
+        modifier = Modifier.padding(8.dp),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFD32F2F))
     ) {
@@ -450,8 +573,7 @@ fun SoldOutTag() {
 @Composable
 fun LowStockBadge() {
     Card(
-        modifier = Modifier
-            .padding(8.dp),
+        modifier = Modifier.padding(8.dp),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFFA000))
     ) {
@@ -466,19 +588,103 @@ fun LowStockBadge() {
 }
 
 @Composable
-fun JuiceCustomizationDialog(
+private fun ResetStockButton(onLongPress: () -> Unit) {
+    Button(
+        onClick = onLongPress, // 同时支持单击触发，提升可发现性
+        modifier = Modifier
+            .widthIn(min = 120.dp) // 加宽按钮
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+    ) {
+        Text("鲜料重置", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun ResetStockDialog(
     recipe: Recipe,
-    onConfirm: (cupSize: String, withIce: Boolean) -> Unit,
+    onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var withIce by remember { mutableStateOf(true) } // Default to normal ice
-    var cupSize by remember { mutableStateOf("中杯") } // Default to medium cup
+    var password by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("鲜料重置确认") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "将把“${recipe.name}”的鲜料剩余重置为默认库存值。",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { input ->
+                        password = input
+                        // 当输入非空且不为“0”时即时提示错误
+                        isError = input.isNotBlank() && input != "0"
+                    },
+                    label = { Text("请输入密码") },
+                    singleLine = true,
+                    isError = isError,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (isError) {
+                    Text(
+                        text = "密码错误",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    // 只有在密码为“0”时按钮才可点击，此处直接确认
+                    isError = false
+                    onConfirm()
+                },
+                enabled = password == "0"
+            ) { Text("确认重置") }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+fun JuiceCustomizationDialog(
+    recipe: Recipe,
+    onConfirm: (cupSize: String, iceMode: IceMode) -> Unit,
+    onDismiss: () -> Unit,
+    onAnyInteraction: () -> Unit = {}
+) {
+    var iceMode by remember { mutableStateOf(IceMode.NORMAL) }
+    var cupSize by remember { mutableStateOf("中杯") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(16.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = {
+                            onAnyInteraction()
+                            try { tryAwaitRelease() } finally { onAnyInteraction() }
+                        },
+                        onTap = { onAnyInteraction() },
+                        onLongPress = { onAnyInteraction() },
+                        onDoubleTap = { onAnyInteraction() }
+                    )
+                },
             shape = RoundedCornerShape(24.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
         ) {
@@ -486,7 +692,6 @@ fun JuiceCustomizationDialog(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 标题区域
                 Text(
                     text = "定制您的${recipe.name}",
                     style = MaterialTheme.typography.headlineSmall,
@@ -494,242 +699,155 @@ fun JuiceCustomizationDialog(
                     color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.Center
                 )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Text(
-                    text = "请选择您的偏好",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center
-                )
-                
-                Spacer(modifier = Modifier.height(24.dp))
-                
-                // 价格显示
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 价格显示（大杯 +2）
+                val displayPrice = if (cupSize == "大杯") recipe.price + 2 else recipe.price
                 Card(
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
-                    val displayPrice = when(cupSize) {
-                        "大杯" -> recipe.price + 2
-                        else -> recipe.price
-                    }
                     Text(
-                        text = "¥${displayPrice}",
+                        text = "¥$displayPrice",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                     )
                 }
-                
-                Spacer(modifier = Modifier.height(24.dp))
+
+                Spacer(Modifier.height(16.dp))
 
                 // 杯型选择
                 Text(
                     text = "杯型选择",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.align(Alignment.Start)
                 )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // 中杯按钮
+                Spacer(Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Card(
                         onClick = { cupSize = "中杯" },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (cupSize == "中杯") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        elevation = CardDefaults.cardElevation(
-                            defaultElevation = if (cupSize == "中杯") 8.dp else 2.dp
                         )
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "🥤",
-                                fontSize = 24.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "中杯",
-                                fontWeight = FontWeight.Bold,
-                                color = if (cupSize == "中杯") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "标准份量",
-                                fontSize = 10.sp,
-                                color = if (cupSize == "中杯") Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
+                        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("🥤", fontSize = 24.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("中杯", fontWeight = FontWeight.Bold, color = if (cupSize == "中杯") Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    
-                    // 大杯按钮
                     Card(
                         onClick = { cupSize = "大杯" },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (cupSize == "大杯") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        elevation = CardDefaults.cardElevation(
-                            defaultElevation = if (cupSize == "大杯") 8.dp else 2.dp
                         )
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "🍺",
-                                fontSize = 24.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "大杯",
-                                fontWeight = FontWeight.Bold,
-                                color = if (cupSize == "大杯") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "+¥2",
-                                fontSize = 10.sp,
-                                color = if (cupSize == "大杯") Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
+                        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("🍺", fontSize = 24.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("大杯", fontWeight = FontWeight.Bold, color = if (cupSize == "大杯") Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("+¥2", fontSize = 10.sp, color = if (cupSize == "大杯") Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
 
-                // 冰度选择
+                // 冰度/热饮选择
                 Text(
                     text = "冰度选择",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.align(Alignment.Start)
                 )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
+                Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 正常冰按钮
                     Card(
-                        onClick = { withIce = true },
+                        onClick = { iceMode = IceMode.NORMAL },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (withIce) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        elevation = CardDefaults.cardElevation(
-                            defaultElevation = if (withIce) 8.dp else 2.dp
-                        )
+                        colors = CardDefaults.cardColors(containerColor = if (iceMode == IceMode.NORMAL) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth()
+                                .height(96.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Text(
-                                text = "❄️",
-                                fontSize = 24.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "正常冰",
-                                fontWeight = FontWeight.Bold,
-                                color = if (withIce) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("❄️", fontSize = 32.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("正常冰", fontWeight = FontWeight.Bold, color = if (iceMode == IceMode.NORMAL) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    
-                    // 去冰按钮
                     Card(
-                        onClick = { withIce = false },
+                        onClick = { iceMode = IceMode.NO_ICE },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (!withIce) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        elevation = CardDefaults.cardElevation(
-                            defaultElevation = if (!withIce) 8.dp else 2.dp
-                        )
+                        colors = CardDefaults.cardColors(containerColor = if (iceMode == IceMode.NO_ICE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth()
+                                .height(96.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Text(
-                                text = "🌡️",
-                                fontSize = 24.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "去冰",
-                                fontWeight = FontWeight.Bold,
-                                color = if (!withIce) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("🌡️", fontSize = 32.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("去冰", fontWeight = FontWeight.Bold, color = if (iceMode == IceMode.NO_ICE) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Card(
+                        onClick = { iceMode = IceMode.HOT },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (iceMode == IceMode.HOT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(
+                            Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth()
+                                .height(96.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("☕️", fontSize = 32.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("热饮", fontWeight = FontWeight.Bold, color = if (iceMode == IceMode.HOT) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // 操作按钮
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // 取消按钮
+                Spacer(Modifier.height(24.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(
-                            text = "取消",
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }
-                    
-                    // 确认按钮
+                        shape = RoundedCornerShape(16.dp)
+                    ) { Text("取消", fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)) }
                     Button(
-                        onClick = { 
-                            // 添加调试信息
-                            Log.d("JuiceCustomizationDialog", "确认制作: 杯型=$cupSize, 冰度=${if(withIce) "正常冰" else "去冰"}")
-                            onConfirm(cupSize, withIce) 
+                        onClick = {
+                            val modeText = when (iceMode) { IceMode.NORMAL -> "正常冰"; IceMode.NO_ICE -> "去冰"; IceMode.HOT -> "热饮" }
+                            Log.d("JuiceCustomizationDialog", "确认制作: 杯型=$cupSize, 冰度=$modeText")
+                            onConfirm(cupSize, iceMode)
                         },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(
-                            text = "开始制作",
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }
+                        shape = RoundedCornerShape(16.dp)
+                    ) { Text("开始制作", fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)) }
                 }
             }
         }
@@ -743,6 +861,22 @@ fun LoginDialog(
     onDismiss: () -> Unit
 ) {
     var password by remember { mutableStateOf("") }
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val shake = remember { Animatable(0f) }
+
+    // 错误时触发 Haptic 与抖动
+    LaunchedEffect(isError) {
+        if (isError) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            // 轻微抖动：-6..+6..0 px
+            shake.snapTo(0f)
+            val seq = listOf(-6f, 6f, -4f, 4f, -2f, 2f, 0f)
+            for (x in seq) {
+                shake.animateTo(x, animationSpec = tween(durationMillis = 30))
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -755,9 +889,10 @@ fun LoginDialog(
                     label = { Text("请输入密码") },
                     isError = isError,
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation()
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.offset(x = with(density) { shake.value.dp })
                 )
-                if (isError) {
+                AnimatedVisibility(visible = isError, enter = fadeIn(), exit = fadeOut()) {
                     Text(
                         "密码错误，请重试",
                         color = MaterialTheme.colorScheme.error,
@@ -768,21 +903,45 @@ fun LoginDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(password) }) {
-                Text("确认")
-            }
+            Button(onClick = { onConfirm(password) }, enabled = password.isNotBlank()) { Text("确认") }
         },
         dismissButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-            ) {
+            Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
                 Text("取消")
             }
         }
     )
 }
 
+@Preview(showBackground = true)
+@Composable
+fun DrinkMenuScreenPreview() {
+    val dummyRecipes = listOf(
+        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 1, imageUri = null),
+        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, defaultRemainingWeight = 30, currentRemainingWeight = 30, juiceChannel = 2, imageUri = null),
+        Recipe(id = 3, name = "鸭屎香柠檬茶", water = 130, juice = 150, price = 10, defaultRemainingWeight = 0, currentRemainingWeight = 0, juiceChannel = 3, imageUri = null)
+    )
+    val previewState = DrinkMenuUiState(
+        recipes = dummyRecipes
+    )
+    DrinkMenuScreen(
+        uiState = previewState,
+        onRecipeClick = {},
+        onHeaderLongClick = {},
+        onWaterOnlyToggle = {},
+        onEmergencyStop = {},
+        onDismissDialog = {},
+        onConfirmDialog = { _, _, _ -> },
+        onLoginAttempt = {},
+        onDismissError = {},
+        onContinueRecipe = {},
+        onRestartRecipe = {},
+        onDismissWeighResult = {},
+        onCancelWeighWaiting = {}
+    )
+}
+
+// 新增：全局使用的重量变化弹窗，供 AppNavigation 调用
 @Composable
 fun WeightChangeDialog(
     onContinue: () -> Unit,
@@ -790,176 +949,48 @@ fun WeightChangeDialog(
     onDismiss: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = { /* 阻止点击外部关闭 */ },
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 6.dp,
+        onDismissRequest = onDismiss,
         title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = "警告",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(32.dp)
-                )
-                Text(
-                    text = "检测到杯子被移动",
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Warning, contentDescription = null, tint = FreshRed)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("检测到杯子被移动", color = FreshRed)
             }
         },
         text = {
-            Column(
-                modifier = Modifier.padding(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = "制作过程中检测到重量变化，请选择操作：",
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontSize = 16.sp,
-                        lineHeight = 24.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)
-                    ),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "提示",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "请倒掉饮品并重新放置杯子！",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp
-                            ),
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("制作过程中检测到重量发生变化，请选择操作：")
+                Text("请清掉饮品并且重新放置杯子！", color = FreshRed, style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Button(
                     onClick = onContinue,
                     modifier = Modifier
                         .weight(1f)
-                        .height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFF9800),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 2.dp,
-                        pressedElevation = 4.dp
-                    )
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FreshOrange, contentColor = Color.White),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "继续",
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "继续制作",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                        )
-                    }
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("继续制作")
                 }
-                
                 Button(
                     onClick = onRestart,
                     modifier = Modifier
                         .weight(1f)
-                        .height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4CAF50),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 2.dp,
-                        pressedElevation = 4.dp
-                    )
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FreshGreen, contentColor = Color.White),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "重新制作",
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "重新制作",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                        )
-                    }
+                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("重新制作")
                 }
             }
         },
-        dismissButton = null
+        dismissButton = {}
     )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun DrinkMenuScreenPreview() {
-    val previewRecipes = listOf(
-        Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
-        Recipe(id = 2, name = "柳橙百香", water = 180, juice = 100, price = 9, remainWeight = 3, juiceChannel = 2, imageUri = null),
-        Recipe(id = 3, name = "满杯桑葚", water = 130, juice = 150, price = 10, remainWeight = 0, juiceChannel = 3, imageUri = null)
-    )
-    JuiceMachineTheme {
-        DrinkMenuScreen(
-            uiState = DrinkMenuUiState(recipes = previewRecipes, temperature = "25℃"),
-            onRecipeClick = {},
-            onHeaderLongClick = {},
-            onDismissDialog = {},
-            onConfirmDialog = { _, _, _ -> },
-            onLoginAttempt = {},
-            onDismissError = {},
-            onContinueRecipe = {},
-            onRestartRecipe = {}
-        )
-    }
 }

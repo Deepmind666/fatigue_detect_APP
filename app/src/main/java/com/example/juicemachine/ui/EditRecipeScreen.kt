@@ -58,7 +58,17 @@ fun EditRecipeScreen(
     onJuiceChange: (String) -> Unit,
     onPriceChange: (String) -> Unit,
     onStockChange: (String) -> Unit,
+    // 新增：当前剩余重量手动设定
+    onCurrentRemainWeightChange: (String) -> Unit,
+    onJuiceTypeChange: (String) -> Unit,
     onJuiceChannelChange: (String) -> Unit,
+    onHasPulpChange: (Boolean) -> Unit,
+    onWaterSpeedChange: (String) -> Unit,
+    onJuiceSpeedChange: (String) -> Unit,
+    // 新增：果肉补偿相关参数（按饮品独立）
+    onPulpTotalCupsChange: (String) -> Unit,
+    onPulpDecIntervalChange: (String) -> Unit,
+    onPulpDecAmountChange: (String) -> Unit,
     onSave: () -> Unit,
     onNavigateBack: () -> Unit,
     onImageSelected: (Uri?) -> Unit = {}, // 新增：图片选择回调
@@ -87,6 +97,8 @@ fun EditRecipeScreen(
     // 状态管理
     var showCropDialog by remember { mutableStateOf(false) }
     var showScaleDialog by remember { mutableStateOf(false) }
+    // 新增：保存确认弹窗
+    var showConfirmSave by remember { mutableStateOf(false) }
     
     // 调试日志
     LaunchedEffect(selectedImageUri) {
@@ -103,14 +115,14 @@ fun EditRecipeScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onSave, enabled = isSavable) {
+                    IconButton(onClick = { if (isSavable) showConfirmSave = true }, enabled = isSavable) {
                         Icon(Icons.Filled.Done, contentDescription = "保存")
                     }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onSave) {
+            FloatingActionButton(onClick = { showConfirmSave = true }) {
                 Icon(Icons.Filled.Done, contentDescription = "保存")
             }
         }
@@ -288,9 +300,12 @@ fun EditRecipeScreen(
                                 }
                             }
                         }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
                     }
                     
-                    // 图片信息提示
+                    // 图片信息提示（移动到 Row 外，在 BoxScope 中对齐）
                     if (selectedImageUri != null) {
                         Card(
                             modifier = Modifier
@@ -310,8 +325,8 @@ fun EditRecipeScreen(
                         }
                     }
                 }
-            }
             
+            }
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
@@ -324,9 +339,11 @@ fun EditRecipeScreen(
 
             // Helper function for validating numeric input within a range
             val validateInRange: (String, IntRange, (String) -> Unit) -> Unit = { input, range, onValidChange ->
-                val filteredInput = input.filter { it.isDigit() }
+                // 兼容不同键盘产生的全角/上标数字：先做 NFKC 规范化，再仅保留 0-9
+                val normalized = java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFKC)
+                val filteredInput = normalized.filter { it in '0'..'9' }
                 if (filteredInput.isBlank()) {
-                    onValidChange("") // Or handle as "0"
+                    onValidChange("")
                 } else {
                     val value = filteredInput.toIntOrNull() ?: 0
                     onValidChange(value.coerceIn(range).toString())
@@ -358,24 +375,140 @@ fun EditRecipeScreen(
             )
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
-                value = recipe.remainWeight.toString(),
-                onValueChange = { validateInRange(it, 0..1000000, onStockChange) },
-                label = { Text("剩余重量 (g) [0-1000000]") },
+                value = recipe.defaultRemainingWeight.toString(),
+                onValueChange = onStockChange,
+                label = { Text("库存(克)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            // 新增：当前剩余重量（手动设定）
+            OutlinedTextField(
+                value = recipe.currentRemainingWeight.toString(),
+                onValueChange = { input ->
+                    val normalized = java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFKC)
+                    val digits = normalized.filter { it in '0'..'9' }
+                    val value = digits.toIntOrNull() ?: 0
+                    onCurrentRemainWeightChange(value.coerceAtLeast(0).toString())
+                },
+                label = { Text("当前剩余重量(克)") },
+                singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            // 新增：果汁类型（自由文本）
+            OutlinedTextField(
+                value = recipe.juiceType,
+                onValueChange = { input ->
+                    // 允许中英文及常见符号；移除首尾空格但保留中间空格
+                    val normalized = input.trim()
+                    onJuiceTypeChange(normalized)
+                },
+                label = { Text("果汁类型") },
+                placeholder = { Text("例如：橙汁 / 百香果 / 柠檬茶") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = recipe.juiceChannel.toString(),
-                onValueChange = { validateInRange(it, 1..3, onJuiceChannelChange) },
+                onValueChange = { raw ->
+                    // 通道只允许单个数字（1..3）：取最后一位有效数字，避免“12”被整体解析成 12 后被强制夹到 3
+                    val normalized = java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
+                    val digits = normalized.filter { it in '0'..'9' }
+                    if (digits.isEmpty()) {
+                        onJuiceChannelChange("")
+                    } else {
+                        val last = digits.last().digitToInt()
+                        val clamped = last.coerceIn(1, 3)
+                        onJuiceChannelChange(clamped.toString())
+                    }
+                },
                 label = { Text("果汁通道 (1-3)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(16.dp))
+            // 果汁流速：上移到果汁通道之上，两个模式通用
+            OutlinedTextField(
+                value = recipe.juiceSpeed.toString(),
+                onValueChange = { input -> validateInRange(input, 0..255, onJuiceSpeedChange) },
+                label = { Text("果汁流速 (0-255)") },
+                placeholder = { Text("0 表示设备默认") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            // 新增：是否含果肉
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "含果肉", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = recipe.hasPulp,
+                    onCheckedChange = onHasPulpChange
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // 新增：果肉补偿参数（仅在含果肉为 true 时启用）
+            Text(text = "果肉补偿参数", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = recipe.pulpTotalCups.toString(),
+                    onValueChange = { input -> validateInRange(input, 1..255, onPulpTotalCupsChange) },
+                    label = { Text("总杯数") },
+                    enabled = recipe.hasPulp,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = recipe.pulpDecInterval.toString(),
+                    onValueChange = { input -> validateInRange(input, 1..255, onPulpDecIntervalChange) },
+                    label = { Text("递减间隔（杯数）") },
+                    enabled = recipe.hasPulp,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = recipe.pulpDecAmount.toString(),
+                    onValueChange = { input -> validateInRange(input, 1..255, onPulpDecAmountChange) },
+                    label = { Text("递减量（ml）") },
+                    enabled = recipe.hasPulp,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // 已移除：底部果汁流速（已上移至果汁通道附近，避免与果肉分组）
         }
     }
     
+    // 新增：保存确认弹窗
+    if (showConfirmSave) {
+        AlertDialog(
+            onDismissRequest = { showConfirmSave = false },
+            title = { Text("确认修改配方？") },
+            text = { Text("确定要保存当前配方的修改吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmSave = false
+                    onSave()
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmSave = false }) { Text("取消") }
+            }
+        )
+    }
+
     // 显示裁剪对话框
     if (showCropDialog && selectedImageUri != null) {
         ImageCropDialog(
@@ -408,9 +541,11 @@ fun EditRecipeScreen(
 // 添加获取饮品图片的函数（与DrinkMenuScreen保持一致）
 private fun getDrawableForRecipe(recipeName: String): Int {
     return when (recipeName) {
-        "茉莉雪芽" -> R.drawable.mo_li_xue_ya
+        "茉莉雪芽" -> R.drawable.mo_li_xue_ya_2
         "柳橙百香" -> R.drawable.liu_cheng_bai_xiang
-        "满杯桑葚" -> R.drawable.man_bei_sang_shen 
+        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang
+        // 兼容旧名称：满杯桑葚 已被鸭屎香柠檬茶替换
+        "满杯桑葚" -> R.drawable.ya_shi_xiang
         else -> R.drawable.placeholder
     }
 }
@@ -420,19 +555,25 @@ private fun getDrawableForRecipe(recipeName: String): Int {
 @Preview(showBackground = true)
 @Composable
 fun EditRecipeScreenPreview() {
-    JuiceMachineTheme {
-        EditRecipeScreen(
-            recipe = Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, remainWeight = 1000, juiceChannel = 1, imageUri = null),
-            onNameChange = {},
-            onWaterChange = {},
-            onJuiceChange = {},
-            onPriceChange = {},
-            onStockChange = {},
-            onJuiceChannelChange = {},
-            onSave = {},
-            onNavigateBack = {},
-            onImageSelected = {},
-            selectedImageUri = null
-        )
-    }
+    EditRecipeScreen(
+        recipe = Recipe(id = 1, name = "茉莉雪芽", water = 105, juice = 175, price = 8, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 1, imageUri = null),
+        onNameChange = {},
+        onWaterChange = {},
+        onJuiceChange = {},
+        onPriceChange = {},
+        onStockChange = {},
+        onCurrentRemainWeightChange = {},
+        onJuiceTypeChange = {},
+        onJuiceChannelChange = {},
+        onHasPulpChange = {},
+        onWaterSpeedChange = {},
+        onJuiceSpeedChange = {},
+        onPulpTotalCupsChange = {},
+        onPulpDecIntervalChange = {},
+        onPulpDecAmountChange = {},
+        onSave = {},
+        onNavigateBack = {},
+        onImageSelected = {},
+        selectedImageUri = null
+    )
 }

@@ -24,7 +24,11 @@ class RecipeRepository(private val recipeDao: RecipeDao) {
         return recipeDao.getRecipeById(id)
     }
 
-    suspend fun updateRemainWeight(id: Int, remainWeight: Int) {
-        recipeDao.updateRemainWeight(id, remainWeight)
+    suspend fun updateCurrentRemainingWeight(id: Int, weight: Int) {
+        recipeDao.updateCurrentRemainingWeight(id, weight)
     }
-} 
+
+    suspend fun resetCurrentRemainingToDefault(id: Int) {
+        recipeDao.resetCurrentRemainingToDefault(id)
+    }
+}

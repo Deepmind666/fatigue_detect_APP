@@ -83,6 +83,12 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("io.coil-kt:coil-svg:2.5.0")
 
+    // DataStore Preferences
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Android Keystore + Crypto for encrypting sensitive preferences
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.extJunit)
@@ -93,4 +99,4 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     implementation("com.licheedev:android-serialport:2.1.4")
-} 
+}

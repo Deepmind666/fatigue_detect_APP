@@ -30,6 +30,11 @@ interface RecipeDao {
     @Delete
     suspend fun deleteRecipe(recipe: Recipe)
 
-    @Query("UPDATE recipes SET remainWeight = :remainWeight WHERE id = :id")
-    suspend fun updateRemainWeight(id: Int, remainWeight: Int)
-} 
+    // 更新当前剩余重量
+    @Query("UPDATE recipes SET currentRemainingWeight = :weight WHERE id = :id")
+    suspend fun updateCurrentRemainingWeight(id: Int, weight: Int)
+
+    // 将当前剩余重量重置为默认值
+    @Query("UPDATE recipes SET currentRemainingWeight = defaultRemainingWeight WHERE id = :id")
+    suspend fun resetCurrentRemainingToDefault(id: Int)
+}

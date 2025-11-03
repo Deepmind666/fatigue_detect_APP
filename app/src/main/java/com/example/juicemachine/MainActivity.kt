@@ -22,11 +22,14 @@ import com.example.juicemachine.ui.AppNavigation
 import com.example.juicemachine.ui.theme.JuiceMachineTheme
 import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModel
 import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModelFactory
+ 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
+ 
 import android.hardware.usb.UsbManager
 import com.example.juicemachine.data.hardware.HardwareManager
 import com.example.juicemachine.util.DebugLogger
 import androidx.core.content.FileProvider
-import android.widget.Toast
 import android.annotation.SuppressLint
 
 class MainActivity : ComponentActivity() {
@@ -39,24 +42,6 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private val usbPermissionReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == HardwareManager.USB_PERMISSION_ACTION) {
-                android.util.Log.d("MainActivity", "USB权限广播收到，intent=$intent")
-                synchronized(this) {
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    if (granted) {
-                        android.util.Log.d("MainActivity", "USB权限已授权，重新connect")
-                        (application as JuiceMachineApplication).hardwareManager.connect { _ ->
-                            // 可根据需要更新UI
-                        }
-                    } else {
-                        android.util.Log.e("MainActivity", "USB权限被拒绝")
-                    }
-                }
-            }
-        }
-    }
 
     // 权限请求启动器
     private val requestPermissionLauncher = registerForActivityResult(
@@ -80,24 +65,18 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation(viewModel = viewModel)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AppNavigation(viewModel = viewModel)
+                    }
                 }
             }
-        }
-        // 注册USB权限广播接收器，action统一
-        val filter = IntentFilter(HardwareManager.USB_PERMISSION_ACTION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(usbPermissionReceiver, filter)
         }
         // 监听标题长按，导出日志
         val root = findViewById<android.view.View>(android.R.id.content)
         root.setOnLongClickListener {
             val file = DebugLogger.getLogFile()
             if (file == null || !file.exists()) {
-                Toast.makeText(this, "暂无日志可导出", Toast.LENGTH_SHORT).show()
+                DebugLogger.w("MainActivity", "暂无日志可导出", showToast = false)
                 return@setOnLongClickListener true
             }
             try {
@@ -108,7 +87,7 @@ class MainActivity : ComponentActivity() {
                 share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 startActivity(Intent.createChooser(share, "导出诊断日志"))
             } catch (e: Exception) {
-                Toast.makeText(this, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+                DebugLogger.e("MainActivity", "导出失败: ${e.message}", e, showToast = false)
             }
             true
         }
@@ -155,8 +134,6 @@ class MainActivity : ComponentActivity() {
     }
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            unregisterReceiver(usbPermissionReceiver)
-        } catch (_: Exception) { }
+        // 无需注销USB权限广播（改为由 HardwareManager 统一管理）
     }
 }

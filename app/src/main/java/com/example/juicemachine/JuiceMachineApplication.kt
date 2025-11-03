@@ -31,9 +31,41 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         // 初始化本地日志
         DebugLogger.init(this)
+        // 关闭Toast调试显示，避免频繁弹窗干扰
+        DebugLogger.setToastEnabled(false)
         // 全局未捕获异常处理，落盘到日志文件
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             DebugLogger.crash("UncaughtException", "线程: ${thread.name}", throwable)
+        }
+
+        // 兜底：若数据库当前没有任何配方，自动插入默认配方，避免“配方管理功能消失”
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                val count = database.recipeDao().getRecipeCount()
+                if (count == 0) {
+                    val defaults = listOf(
+                        com.example.juicemachine.data.database.Recipe(
+                            name = "茉莉雪芽", water = 105, juice = 175, price = 8,
+                            defaultRemainingWeight = 1000, currentRemainingWeight = 1000,
+                            juiceChannel = 1, imageUri = null, juiceType = "牛奶绿茶"
+                        ),
+                        com.example.juicemachine.data.database.Recipe(
+                            name = "柳橙百香", water = 180, juice = 100, price = 9,
+                            defaultRemainingWeight = 1000, currentRemainingWeight = 1000,
+                            juiceChannel = 2, imageUri = null, juiceType = "橙汁百香果汁"
+                        ),
+                        com.example.juicemachine.data.database.Recipe(
+                            name = "鸭屎香柠檬茶", water = 130, juice = 150, price = 10,
+                            defaultRemainingWeight = 1000, currentRemainingWeight = 1000,
+                            juiceChannel = 3, imageUri = null, juiceType = "柠檬汁鸭屎香"
+                        )
+                    )
+                    database.recipeDao().insertAll(defaults)
+                    DebugLogger.i("App", "已自动插入默认配方（数据库为空）", showToast = false)
+                }
+            } catch (e: Exception) {
+                DebugLogger.w("App", "默认配方兜底插入失败: ${e.message}", showToast = false)
+            }
         }
     }
 
