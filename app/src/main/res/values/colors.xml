@@ -7,4 +7,10 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-</resources> 
+    <!-- Splash/background brand color matching Compose WarmBeige (0xFFFFF3E0) -->
+    <color name="splash_bg">#FFF3E0</color>
+    <!-- Added to satisfy drawable references used by fatigue overlay chips -->
+    <color name="status_normal">#4CAF50</color>
+    <color name="status_warning">#FFC107</color>
+    <color name="status_alarm">#F44336</color>
+</resources>

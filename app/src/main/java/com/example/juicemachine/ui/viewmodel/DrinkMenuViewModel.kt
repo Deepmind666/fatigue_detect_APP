@@ -23,15 +23,17 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
 import java.util.ArrayDeque
 import com.example.juicemachine.util.DebugLogger
 import kotlinx.coroutines.delay
+// 移除小数格式化：重量显示统一为整数
 
 data class DrinkMenuUiState(
     val recipes: List<Recipe> = emptyList(),
     val connectionStatus: String = "未连接",
     val selectedRecipe: Recipe? = null,
-    val recipeToEdit: Recipe = Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, defaultRemainingWeight = 0, currentRemainingWeight = 0, juiceChannel = 1),
+    val recipeToEdit: Recipe = Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, defaultRemainingWeight = 0, currentRemainingWeight = 0, juiceChannel = 1, waterSpeed = 60, juiceSpeed = 60),
     val showLoginDialog: Boolean = false,
     val loginError: Boolean = false,
     val navigateToAdmin: Boolean = false,
@@ -48,16 +50,22 @@ data class DrinkMenuUiState(
     // 新增：只出水状态，用于切换按钮高亮
     val isWaterOnlyActive: Boolean = false,
     // 新增：只出水水速（0-255），用于构建加水开始指令中的速度参数
-    val waterOnlySpeed: Int = 0,
+    val waterOnlySpeed: Int = 60,
     // 新增：称重测试等待弹窗与结果提示
     val showWeighWaitingDialog: Boolean = false,
-    val weighResultMessage: String? = null
+    val weighResultMessage: String? = null,
+    // 新增：温度与重量上报（用于用户页展示）
+    val currentTemperature: Int? = null,
+    val currentWeight: Int? = null,
+    // 新增：广告页倒计时重置触发（硬件中性完成帧）
+    val adsResetTick: Int = 0
 )
 
 class DrinkMenuViewModel(
     private val recipeRepository: RecipeRepository,
     private val orderRepository: OrderRepository,
-    private val hardwareManager: HardwareManager
+    private val hardwareManager: HardwareManager,
+    private val sharedPreferences: android.content.SharedPreferences
 ) : ViewModel() {
     
     // 标记：是否将当前这次完成回调排除在统计之外（用于“重新制作不算”）
@@ -68,23 +76,52 @@ class DrinkMenuViewModel(
     private val _uiState = MutableStateFlow(DrinkMenuUiState())
     val uiState: StateFlow<DrinkMenuUiState> = _uiState.asStateFlow()
 
+    private var recipesCollectionJob: Job? = null
+
     init {
-        // 持续监听配方列表
-        viewModelScope.launch {
-            try {
-                recipeRepository.allRecipes.collect { list ->
-                    _uiState.update { it.copy(recipes = list) }
-                }
-            } catch (e: Exception) {
-                Log.e("DrinkMenuViewModel", "加载配方失败: ${e.message}", e)
-                _uiState.update { it.copy(errorMessage = "加载配方失败: ${e.message}") }
-            }
-        }
-        // 尝试连接设备并更新连接状态
-        tryConnect()
+        // 延后配方收集：不在冷启动阶段立即打开数据库与流
+        // 硬件连接改为在首帧绘制后再触发，避免冷启动阶段做USB枚举与广播注册
+        // 在 AppNavigation 的 LaunchedEffect 中调用 initializeHardwareAfterFirstFrame()
         // 设置监听器
         setupOrderCompletionListener()
         setupSafeAnomalyListener()
+        setupTelemetryListeners()
+        // Load persisted waterOnlySpeed；若为0或负数，强制回落到60并回写
+        val persistedSpeed = sharedPreferences.getInt("water_only_speed", 60)
+        val normalizedSpeed = if (persistedSpeed <= 0) 60 else persistedSpeed.coerceIn(1, 255)
+        if (persistedSpeed <= 0) {
+            try {
+                sharedPreferences.edit().putInt("water_only_speed", normalizedSpeed).apply()
+            } catch (e: Exception) {
+                Log.w("DrinkMenuViewModel", "回写默认水速失败: ${e.message}", e)
+            }
+        }
+        _uiState.update { it.copy(waterOnlySpeed = normalizedSpeed) }
+    }
+
+    // 页面可见时启动配方收集；重复调用将被忽略
+    fun onDrinkMenuVisible() {
+        if (recipesCollectionJob != null) return
+        recipesCollectionJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                recipeRepository.allRecipes.collect { list ->
+                    withContext(Dispatchers.Main) {
+                        _uiState.update { it.copy(recipes = list) }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("DrinkMenuViewModel", "加载配方失败: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(errorMessage = "加载配方失败: ${e.message}") }
+                }
+            }
+        }
+    }
+
+    // 页面隐藏时停止配方收集，释放资源
+    fun onDrinkMenuHidden() {
+        recipesCollectionJob?.cancel()
+        recipesCollectionJob = null
     }
 
     fun onRecipeClick(recipe: Recipe) {
@@ -147,7 +184,13 @@ class DrinkMenuViewModel(
                 try {
                     // 按后端新协议，直接使用计算后的实际用量（调用端已处理杯型缩放）
                     val latestBase = _uiState.value.recipes.find { it.id == recipe.id } ?: recipe
-                    val recipeToSend = latestBase.copy(juice = actualJuice, water = actualWater)
+                    // 制作时水速采用全局设置（waterOnlySpeed），不使用配方内水速
+                    val globalWaterSpeed = _uiState.value.waterOnlySpeed
+                    val recipeToSend = latestBase.copy(
+                        juice = actualJuice,
+                        water = actualWater,
+                        waterSpeed = globalWaterSpeed
+                    )
                     sentOkFlag = when (iceMode) {
                         IceMode.HOT -> {
                             hardwareManager.makeHotDrink(recipeToSend, cupSize)
@@ -255,11 +298,23 @@ class DrinkMenuViewModel(
         }
     }
 
-    // 统一的设备重连方法
-    private fun tryConnect() {
-        hardwareManager.connect { status ->
-            _uiState.update { it.copy(connectionStatus = status) }
+    // 统一的设备重连方法：在后台线程执行，避免冷启动阻塞主线程
+    // 改为公开方法，供首帧后调用
+    fun tryConnect() {
+        viewModelScope.launch(Dispatchers.IO) {
+            hardwareManager.connect { status ->
+                // 回调可能在非主线程触发，使用主线程协程安全更新 UI
+                viewModelScope.launch(Dispatchers.Main) {
+                    Log.d("DrinkMenuViewModel", "连接状态: $status")
+                    _uiState.update { it.copy(connectionStatus = status) }
+                }
+            }
         }
+    }
+
+    // 首帧后初始化硬件连接入口（由 UI 调用）
+    fun initializeHardwareAfterFirstFrame() {
+        tryConnect()
     }
 
     // 修改清洗命令方法名，与CustomerCleanScreen中调用一致
@@ -332,9 +387,13 @@ class DrinkMenuViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val active = _uiState.value.isWaterOnlyActive
             if (!active) {
-                // 启动只出水：使用旧版加水开始指令以提高兼容性
-                val speed = _uiState.value.waterOnlySpeed.coerceIn(0, 255)
-                val ok = try { hardwareManager.sendWaterOnlyStart(speed) } catch (e: Exception) {
+                // 启动只出水：文档对齐，开始帧不携带速度；先预设速度再发送开始
+                val speedRaw = _uiState.value.waterOnlySpeed
+                val speed = if (speedRaw <= 0) 60 else speedRaw.coerceIn(1, 255)
+                try { hardwareManager.primeWaterTopSpeed(speed) } catch (e: Exception) {
+                    Log.w("DrinkMenuViewModel", "预设水速失败（忽略，不阻塞只出水）：${e.message}")
+                }
+                val ok = try { hardwareManager.sendWaterOnlyStart() } catch (e: Exception) {
                     Log.e("DrinkMenuViewModel", "只出水启动异常: ${e.message}", e)
                     false
                 }
@@ -342,8 +401,8 @@ class DrinkMenuViewModel(
                     _uiState.update { it.copy(isWaterOnlyActive = ok, errorMessage = if (!ok) "只出水启动失败" else null) }
                 }
             } else {
-                // 停止：加水停止（子命令）与后端保持一致 FF 04 02 00 00 00 FE
-                val ok = hardwareManager.sendWaterStop()
+                // 停止：发送 11 字节（FF + 9 数据位 + FE）
+                val ok = hardwareManager.sendWaterOnlyStop()
                 withContext(Dispatchers.Main) {
                     _uiState.update { it.copy(isWaterOnlyActive = false, errorMessage = if (!ok) "停止出水失败" else null) }
                 }
@@ -393,7 +452,7 @@ class DrinkMenuViewModel(
     }
 
     fun onNavigateToEdit(recipe: Recipe?) {
-        val recipeToEdit = recipe ?: Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, defaultRemainingWeight = 0, currentRemainingWeight = 0, juiceChannel = 1)
+        val recipeToEdit = recipe ?: Recipe(id = 0, name = "", water = 0, juice = 0, price = 0, defaultRemainingWeight = 0, currentRemainingWeight = 0, juiceChannel = 1, waterSpeed = 60, juiceSpeed = 60)
         _uiState.update { it.copy(recipeToEdit = recipeToEdit, navigateToEdit = true) }
     }
 
@@ -458,6 +517,12 @@ class DrinkMenuViewModel(
                 waterOnlySpeed = clamped
             )
         }
+    }
+
+    fun saveWaterOnlySpeed() {
+        val speed = _uiState.value.waterOnlySpeed
+        val toSave = if (speed <= 0) 60 else speed.coerceIn(1, 255)
+        sharedPreferences.edit().putInt("water_only_speed", toSave).apply()
     }
 
     fun onWaterSpeedChange(speed: String) {
@@ -574,7 +639,7 @@ class DrinkMenuViewModel(
     fun saveRecipe(recipe: Recipe) {
         viewModelScope.launch {
             try {
-                // 获取当前选中的图片URI
+                // 获取当前选中的图片URI，并在IO线程执行复制持久化，避免主线程阻塞
                 val pickedUri = _uiState.value.selectedImageUri
                 val persistedUri = pickedUri?.let { persistImageToPrivateStorage(it) }?.toString()
                 val recipeWithImage = recipe.copy(imageUri = persistedUri)
@@ -593,25 +658,33 @@ class DrinkMenuViewModel(
                     recipeWithImage.copy(currentRemainingWeight = keepCurrent)
                 }
 
-                if (adjusted.id == 0) {
-                    recipeRepository.insertRecipe(adjusted)
-                    Log.d("DrinkMenuViewModel", "新配方已保存: ${adjusted.name}, 图片: $persistedUri, 库存=${adjusted.currentRemainingWeight}")
-                } else {
-                    recipeRepository.updateRecipe(adjusted)
-                    Log.d("DrinkMenuViewModel", "配方已更新: ${adjusted.name}, 图片: $persistedUri, 默认配方数=${adjusted.defaultRemainingWeight}, 当前库存=${adjusted.currentRemainingWeight}")
-                    // 若当前选中正是被编辑的配方，刷新 selectedRecipe，避免保存后仍用旧对象下单
-                    _uiState.update { state ->
-                        state.copy(
-                            selectedRecipe = if (state.selectedRecipe?.id == adjusted.id) adjusted else state.selectedRecipe,
-                            recipeToEdit = adjusted
-                        )
+                // 在IO线程执行数据库写入，提升可靠性，避免与UI竞争
+                val saved: Recipe = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    if (adjusted.id == 0) {
+                        val newId = recipeRepository.insertRecipe(adjusted).toInt()
+                        adjusted.copy(id = newId)
+                    } else {
+                        recipeRepository.updateRecipe(adjusted)
+                        adjusted
                     }
                 }
 
-                // 清除选中的图片
-                clearSelectedImage()
+                Log.d(
+                    "DrinkMenuViewModel",
+                    "配方保存成功: ${saved.name}, id=${saved.id}, juiceSpeed=${saved.juiceSpeed}, waterSpeed=${saved.waterSpeed}, imageUri=$persistedUri, 当前库存=${saved.currentRemainingWeight}"
+                )
 
-                _uiState.update { it.copy(errorMessage = "配方保存成功") }
+                // 若当前选中正是被编辑的配方，刷新 selectedRecipe，避免保存后仍用旧对象下单
+                _uiState.update { state ->
+                    state.copy(
+                        selectedRecipe = if (state.selectedRecipe?.id == saved.id) saved else state.selectedRecipe,
+                        recipeToEdit = saved,
+                        errorMessage = "配方保存成功"
+                    )
+                }
+
+                // 清除选中的图片（不影响已保存的 imageUri）
+                clearSelectedImage()
             } catch (e: Exception) {
                 Log.e("DrinkMenuViewModel", "保存配方失败: ${e.message}", e)
                 _uiState.update { it.copy(errorMessage = "保存失败: ${e.message}") }
@@ -650,15 +723,18 @@ class DrinkMenuViewModel(
 
     private suspend fun persistImageToPrivateStorage(uri: android.net.Uri): android.net.Uri? {
         return try {
-            // 修复：使用更稳定的方式获取Context
+            // 修复：使用更稳定的方式获取Context，并在IO线程执行文件复制
             val context = getApplicationContext()
-            val imagesDir = java.io.File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
-            val fileName = "recipe_${System.currentTimeMillis()}.jpg"
-            val outFile = java.io.File(imagesDir, fileName)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                java.io.FileOutputStream(outFile).use { output ->
-                    input.copyTo(output)
+            val outFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val imagesDir = java.io.File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
+                val fileName = "recipe_${System.currentTimeMillis()}.jpg"
+                val target = java.io.File(imagesDir, fileName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    java.io.FileOutputStream(target).use { output ->
+                        input.copyTo(output)
+                    }
                 }
+                target
             }
             androidx.core.content.FileProvider.getUriForFile(
                 context,
@@ -833,7 +909,11 @@ class DrinkMenuViewModel(
                     // 重置排除标志，避免影响后续订单
                     excludeCurrentOrderFromStats = false
                     // 反馈到UI
-                    _uiState.update { it.copy(errorMessage = if (success) "制作完成" else "制作失败") }
+                    _uiState.update { it.copy(
+                        errorMessage = if (success) "制作完成" else "制作失败",
+                        // 制作完成/失败后，同步重置广告页倒计时（无需额外提示）
+                        adsResetTick = it.adsResetTick + 1
+                    ) }
                 } catch (e: Exception) {
                     Log.e("DrinkMenuViewModel", "更新订单状态失败: ${e.message}", e)
                     _uiState.update { it.copy(errorMessage = "更新订单状态失败: ${e.message}") }
@@ -882,9 +962,9 @@ class DrinkMenuViewModel(
                     recipeRepository.deleteRecipe(recipe)
                 }
                 val defaultRecipes = listOf(
-                    Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 1, imageUri = null, juiceType = "牛奶绿茶"),
-                    Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 2, imageUri = null, juiceType = "橙汁百香果汁"),
-                    Recipe(name = "鸭屎香柠檬茶", water = 130, juice = 150, price = 10, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 3, imageUri = null, juiceType = "柠檬汁鸭屎香")
+                    Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 1, imageUri = null, juiceType = "牛奶绿茶", waterSpeed = 60, juiceSpeed = 60),
+                    Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 2, imageUri = null, juiceType = "橙汁百香果汁", waterSpeed = 60, juiceSpeed = 60),
+                    Recipe(name = "鸭屎香柠檬茶", water = 130, juice = 150, price = 10, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 3, imageUri = null, juiceType = "柠檬汁鸭屎香", waterSpeed = 60, juiceSpeed = 60)
                 )
                 defaultRecipes.forEach { recipe -> recipeRepository.insertRecipe(recipe) }
                 _uiState.update { it.copy(errorMessage = "默认配方已恢复") }
@@ -916,17 +996,42 @@ class DrinkMenuViewModel(
             }
         }
     }
+
+    // 新增：温度/重量上报与中性完成事件监听注册
+    private fun setupTelemetryListeners() {
+        hardwareManager.setOnTemperatureReportListener { temp ->
+            viewModelScope.launch(Dispatchers.Main) {
+                _uiState.update { it.copy(currentTemperature = temp) }
+            }
+        }
+        hardwareManager.setOnWeightReportListener { weight ->
+            viewModelScope.launch(Dispatchers.Main) {
+                // 更新用户页显示重量
+                _uiState.update { it.copy(currentWeight = weight) }
+                // 若当前在称重等待弹窗，则以数值结束等待并展示结果
+                if (_uiState.value.showWeighWaitingDialog) {
+                    _uiState.update { it.copy(showWeighWaitingDialog = false, weighResultMessage = "当前重量：${weight} g") }
+                }
+            }
+        }
+        hardwareManager.setOnNeutralCompletionListener {
+            viewModelScope.launch(Dispatchers.Main) {
+                _uiState.update { curr -> curr.copy(adsResetTick = curr.adsResetTick + 1) }
+            }
+        }
+    }
 }
 
 class DrinkMenuViewModelFactory(
     private val repository: RecipeRepository,
     private val hardwareManager: HardwareManager,
-    private val orderRepository: OrderRepository
+    private val orderRepository: OrderRepository,
+    private val sharedPreferences: android.content.SharedPreferences
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(DrinkMenuViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return DrinkMenuViewModel(repository, orderRepository, hardwareManager) as T
+            return DrinkMenuViewModel(repository, orderRepository, hardwareManager, sharedPreferences) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

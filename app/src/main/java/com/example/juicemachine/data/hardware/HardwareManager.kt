@@ -25,6 +25,7 @@ import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import com.example.juicemachine.util.DebugLogger
+import kotlin.math.abs
 
 // 重量异常数据类
 /**
@@ -108,6 +109,13 @@ class HardwareManager(
     private var onStatusListener: ((String) -> Unit)? = null
     private var onWeightAnomalyListener: ((WeightAnomalyData) -> Unit)? = null
     private var onOrderCompletionListener: ((Boolean) -> Unit)? = null // true=成功，false=失败
+    // 新增：温度/重量数值上报与中性完成事件（用于广告倒计时重置）
+    private var onTemperatureReportListener: ((Int) -> Unit)? = null
+    private var onWeightReportListener: ((Int) -> Unit)? = null
+    private var onNeutralCompletionListener: (() -> Unit)? = null
+
+    // 采样打印串口接收日志，避免冷启动阶段日志过多影响性能
+    private var lastRxLogMillis: Long = 0L
 
     // 连续字节流粘包/分包缓冲，确保解析到以0xFF开头、0xFE结尾的完整帧
     private val frameBuffer = ArrayList<Byte>(256)
@@ -124,10 +132,14 @@ class HardwareManager(
 
     /**
      * 从 frameBuffer 中尽可能解析完整帧并分发处理。
-     * 协议为 7 字节：FF CMD P0 P1 P2 P3 FE。
-     * - CMD=0x09：重量异常，P0=severity，P1~P2=预期重量(lo,hi)；
-     * - 其他CMD：使用 P0 作为状态字节（0xAA=成功，0xAC=失败）来判定订单结果；
-     * - 解析到非目标帧时只做日志，避免误处理未知扩展指令。
+     * 优先解析 11.8 改版的 7 字节：FF CMD P0 P1 P2 P3 FE。
+     * 映射（与设备侧文档一致）：
+     * - 异常/温度/重量：CMD=0x09，按数据位判别
+     *   - 温度：P0=温度（有符号8位），P1/P2/P3=0；
+     *   - 重量：P0=lo，P1=hi，P2/P3=0；
+     *   - 异常：P0/P1/P2/P3均为0；
+     * - 完成：CMD=0x03，P0/P1/P2/P3均为0（中性完成）
+     * 兼容保留：温度 CMD=0x0A（P0=temp），重量 CMD=0x0C（P0=lo，P1=hi）；以及旧完成状态字 P0=0xAA/0xAC。
      */
     private fun tryParseFramesFromBuffer() {
         while (true) {
@@ -149,53 +161,139 @@ class HardwareManager(
             // 移除已消费字节
             repeat(frameLen) { frameBuffer.removeAt(0) }
 
-            // 仅处理 7 字节协议帧
+            // 仅处理 7 字节协议帧（后端→前端）
             if (frameLen >= 7 && frame[0] == 0xFF.toByte() && frame[frameLen - 1] == 0xFE.toByte()) {
                 val cmd = frame[1].toInt() and 0xFF
+                val p0 = frame[2].toInt() and 0xFF
+                val p1 = frame[3].toInt() and 0xFF
+                val p2 = frame[4].toInt() and 0xFF
+                val p3 = frame[5].toInt() and 0xFF
+
                 if (cmd == 0x09) {
-                    // 重量异常：FF 09 [severity] [lo] [hi] .. FE（项目已有约定）
-                    val severityByte = frame[2].toInt() and 0xFF
-                    val value = ((frame[4].toInt() and 0xFF) shl 8) or (frame[3].toInt() and 0xFF)
-                    val severity = when (severityByte) {
-                        1 -> WeightAnomalySeverity.LOW
-                        2 -> WeightAnomalySeverity.MEDIUM
-                        3, 4 -> WeightAnomalySeverity.HIGH
-                        else -> WeightAnomalySeverity.MEDIUM
-                    }
-                    Log.d(
-                        "HardwareManager",
-                        "解析到重量异常帧: " + frame.joinToString(" ") { "%02X".format(it) } +
-                            ", severity=$severityByte, value=$value"
-                    )
-                    CoroutineScope(Dispatchers.Main).launch {
-                        onWeightAnomalyListener?.invoke(
-                            WeightAnomalyData(
+                    // 11.8 改版：0x09 统一用于温度/重量/异常三类事件，按数据位判别
+                    val allZero = (p0 == 0 && p1 == 0 && p2 == 0 && p3 == 0)
+                    val onlyP0 = (p0 != 0 && p1 == 0 && p2 == 0 && p3 == 0)
+                    val p0p1 = (p0 != 0 && p1 != 0 && p2 == 0 && p3 == 0)
+                    when {
+                        // 温度：FF 09 [temp] 00 00 00 FE（temp 有符号8位）
+                        onlyP0 -> {
+                            val raw = p0
+                            val temp = if (raw >= 0x80) raw - 0x100 else raw
+                            Log.d(
+                                "HardwareManager",
+                                "解析到温度上报(0x09): ${temp}°C, frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                            )
+                            CoroutineScope(Dispatchers.Main).launch { onTemperatureReportListener?.invoke(temp) }
+                        }
+                        // 重量：FF 09 [hi] [lo] 00 00 FE（按“01 90”版本，高位在前）
+                        p0p1 -> {
+                            val weight = ((p0 and 0xFF) shl 8) or (p1 and 0xFF)
+                            Log.d(
+                                "HardwareManager",
+                                "解析到重量上报(0x09 BE): ${weight}g, frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                            )
+                            CoroutineScope(Dispatchers.Main).launch { onWeightReportListener?.invoke(weight) }
+                        }
+                        // 异常：FF 09 00 00 00 00 FE（不含期望重量与等级，按中等级处理）
+                        allZero -> {
+                            val data = WeightAnomalyData(
                                 currentWeight = 0,
-                                expectedWeight = value,
+                                expectedWeight = 0,
+                                severity = WeightAnomalySeverity.MEDIUM,
+                                timestamp = System.currentTimeMillis()
+                            )
+                            Log.w(
+                                "HardwareManager",
+                                "收到异常事件(0x09 all-zero): frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                            )
+                            CoroutineScope(Dispatchers.Main).launch { onWeightAnomalyListener?.invoke(data) }
+                        }
+                        // 兼容：旧解析（severity + expectedWeight lo/hi）
+                        else -> {
+                            val severity = when (p0) {
+                                1 -> WeightAnomalySeverity.LOW
+                                2 -> WeightAnomalySeverity.MEDIUM
+                                3 -> WeightAnomalySeverity.HIGH
+                                else -> WeightAnomalySeverity.MEDIUM
+                            }
+                            val expected = (p2 shl 8) or p1
+                            val data = WeightAnomalyData(
+                                currentWeight = 0,
+                                expectedWeight = expected,
                                 severity = severity,
                                 timestamp = System.currentTimeMillis()
                             )
-                        )
-                        // 改为仅记录日志，不直接弹Toast，避免干扰
-                        DebugLogger.w("HardwareManager", "检测到重量异常: severity=$severityByte, value=$value", showToast = false)
+                            Log.w(
+                                "HardwareManager",
+                                "收到重量异常(兼容0x09): severity=$p0 expected=${expected}g frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                            )
+                            CoroutineScope(Dispatchers.Main).launch { onWeightAnomalyListener?.invoke(data) }
+                        }
                     }
-                } else {
-                    // 订单完成/失败：FF [cmd] [status] ... FE，其中 status=0xAA(成功)/0xAC(失败)
-                    val status = frame[2].toInt() and 0xFF
-                    when (status) {
-                        0xAA -> {
-                            Log.i("HardwareManager", "收到完成状态(7B): cmd=$cmd status=0xAA 成功")
-                            DebugLogger.i("HardwareManager", "订单完成(7B): cmd=$cmd status=0xAA 成功", showToast = false)
+                } else if (cmd == 0x01) {
+                    // 新规：温度上报 CMD=0x01，P0为温度，其余应为0
+                    val raw = p0
+                    val temp = if (raw >= 0x80) raw - 0x100 else raw
+                    val highZerosOk = (p1 == 0 && p2 == 0 && p3 == 0)
+                    Log.d(
+                        "HardwareManager",
+                        "解析到温度上报(0x01): ${temp}°C, highZerosOk=$highZerosOk, frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                    )
+                    CoroutineScope(Dispatchers.Main).launch { onTemperatureReportListener?.invoke(temp) }
+                } else if (cmd == 0x02) {
+                    // 新规：重量上报 CMD=0x02，按“01 90”版本固定为高位在前（BE）：weight=(P0<<8)|P1
+                    val weight = ((p0 and 0xFF) shl 8) or (p1 and 0xFF)
+                    val highZerosOk = (p2 == 0 && p3 == 0)
+                    Log.d(
+                        "HardwareManager",
+                        "解析到重量上报(0x02): ${weight}g, highZerosOk=$highZerosOk, frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                    )
+                    CoroutineScope(Dispatchers.Main).launch { onWeightReportListener?.invoke(weight) }
+                } else if (cmd == 0x03) {
+                    // 11.8 改版：完成帧 FF 03 00 00 00 00 FE（中性完成）
+                    val allZero = (p0 == 0 && p1 == 0 && p2 == 0 && p3 == 0)
+                    when {
+                        allZero -> {
+                            val hex = frame.joinToString(" ") { "%02X".format(it) }
+                            Log.i("HardwareManager", "订单完成(7B all-zero): 完成 frame=$hex")
+                            DebugLogger.i("HardwareManager", "订单完成(7B all-zero)", showToast = false)
+                            CoroutineScope(Dispatchers.Main).launch {
+                                onOrderCompletionListener?.invoke(true)
+                                onNeutralCompletionListener?.invoke()
+                            }
+                        }
+                        // 兼容旧版：P0=0xAA/0xAC 表示成功/失败
+                        p0 == 0xAA -> {
+                            Log.i("HardwareManager", "订单完成(7B cmd=0x03): 成功")
+                            DebugLogger.i("HardwareManager", "订单完成(7B cmd=0x03)", showToast = false)
                             CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(true) }
                         }
-                        0xAC -> {
-                            Log.w("HardwareManager", "收到失败状态(7B): cmd=$cmd status=0xAC 失败")
-                            DebugLogger.w("HardwareManager", "订单失败(7B): cmd=$cmd status=0xAC 失败", showToast = false)
+                        p0 == 0xAC -> {
+                            Log.w("HardwareManager", "订单完成(7B cmd=0x03): 失败")
+                            DebugLogger.w("HardwareManager", "订单失败(7B cmd=0x03)", showToast = false)
                             CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(false) }
                         }
                         else -> {
                             val hex = frame.joinToString(" ") { "%02X".format(it) }
-                            Log.d("HardwareManager", "解析到非目标帧: $hex")
+                            Log.d("HardwareManager", "解析到未识别的完成帧: $hex")
+                        }
+                    }
+                } else {
+                    // 订单完成/失败：P0=0xAA/0xAC
+                    when (p0) {
+                        0xAA -> {
+                            Log.i("HardwareManager", "订单完成(7B cmd=0x%02X): 成功".format(cmd))
+                            DebugLogger.i("HardwareManager", "订单完成(7B cmd=0x%02X)".format(cmd), showToast = false)
+                            CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(true) }
+                        }
+                        0xAC -> {
+                            Log.i("HardwareManager", "订单完成(7B cmd=0x%02X): 失败".format(cmd))
+                            DebugLogger.w("HardwareManager", "订单失败(7B cmd=0x%02X)".format(cmd), showToast = false)
+                            CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(false) }
+                        }
+                        else -> {
+                            val hex = frame.joinToString(" ") { "%02X".format(it) }
+                            Log.d("HardwareManager", "解析到未识别或保留的7B帧: $hex")
                         }
                     }
                 }
@@ -209,10 +307,14 @@ class HardwareManager(
 
     override fun onNewData(data: ByteArray) {
         if (data.isNotEmpty()) {
-            val hexString = data.joinToString(separator = " ") { "%02X".format(it) }
-            Log.d("HardwareManager", "接收到数据: $hexString")
-            DebugLogger.i("HardwareManager", "接收到数据: $hexString")
-            // 移除对 5 字节 FD/FC 的解析；仅保留 7 字节帧解析
+            val now = System.currentTimeMillis()
+            if (now - lastRxLogMillis >= 1000L) {
+                val hexString = data.joinToString(separator = " ") { "%02X".format(it) }
+                Log.d("HardwareManager", "接收到数据(采样): $hexString")
+                DebugLogger.i("HardwareManager", "接收到数据(采样): $hexString")
+                lastRxLogMillis = now
+            }
+            // 仅解析 7 字节帧（FF ... FE）；不再解析旧规 5 字节 FD/FC
             for (b in data) frameBuffer.add(b)
             if (frameBuffer.size > maxBufferSize) {
                 val toDrop = frameBuffer.size - maxBufferSize
@@ -225,8 +327,11 @@ class HardwareManager(
     fun connect(onStatus: (String) -> Unit) {
         Log.d("HardwareManager", "connect called")
         DebugLogger.i("HardwareManager", "开始连接", showToast = false)
-        // 先清理旧连接，避免注销广播后权限回调丢失
-        disconnect()
+        // 冷启动优化：若当前无连接且资源集合为空，跳过一次全量断开以减少开销
+        val needDisconnect = isConnected || synchronized(portLock) { openedPorts.isNotEmpty() || ioManagers.isNotEmpty() }
+        if (needDisconnect) {
+            disconnect()
+        }
         // 确保广播已注册，用于权限回调
         registerUsbReceiver()
     
@@ -347,8 +452,8 @@ class HardwareManager(
         // 若已有重连任务在进行，避免重复创建
         if (reconnectJob?.isActive == true) return
         val attempt = reconnectAttempts
-        val delayMs = (1000L shl attempt.coerceAtMost(5)).coerceAtMost(30_000L)
-        DebugLogger.w("HardwareManager", "计划在${delayMs / 1000}s后重连(第${attempt + 1}次)", showToast = false)
+        val delayMs = if (attempt == 0) 0L else (500L shl ((attempt - 1).coerceAtMost(5))).coerceAtMost(30_000L)
+        DebugLogger.w("HardwareManager", "计划在${delayMs}ms后重连(第${attempt + 1}次)", showToast = false)
         reconnectJob = scope.launch(Dispatchers.IO) {
             try {
                 delay(delayMs)
@@ -404,6 +509,8 @@ class HardwareManager(
             0x00, 0x00, 0x00, 0x00
         )
     }
+
+    // 固定为 BE（高位在前）：重量解析直接采用 weight=(P0<<8)|P1
 
     // 旧扩展（含补偿字段）的载荷构造：目前已按新要求停用，仅保留以备后续兼容。
     // 实际发送采用 9 数据位（CMD + W1 V1 W2 V2 W3 V3 W4 V4），外层 FF/FE 包裹。
@@ -669,140 +776,164 @@ class HardwareManager(
     }
 
     fun sendAdminCommand(code: Int): Boolean {
-        // 管理员指令按要求使用 9 数据位（CMD+P0..P3+补零4字节），并用 FF/FE 包裹（新规）
-        val payload = buildAdminPayload9(code and 0xFF, 0, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
+        // 统一：管理员指令采用 FF + 9数据位 + FE（数据位补零）
+        val payload9 = buildAdminPayload9(code and 0xFF, 0, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
         DebugLogger.i(
             "HardwareManager",
-            "发送管理员指令(9数据位) CMD=0x${(code and 0xFF).toString(16).uppercase()}: ${frame.joinToString(" ") { "%02X".format(it) }}"
+            "发送管理员指令(FF + 9数据位 + FE) CMD=0x${(code and 0xFF).toString(16).uppercase()}: ${frame.joinToString(" ") { "%02X".format(it) }}"
         )
         return sendCommand(frame)
     }
 
     // 与后端文档一致：控制类子命令（清洗/加水 开始/停止）与 HX711 子命令
     fun sendCleanStart(): Boolean {
-        val payload = buildAdminPayload9(0x03, 0x01, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送清洗开始(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val payload9 = buildAdminPayload9(0x03, 0x01, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送清洗开始(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
     fun sendCleanStop(): Boolean {
-        val payload = buildAdminPayload9(0x04, 0x01, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送清洗停止(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val payload9 = buildAdminPayload9(0x04, 0x01, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送清洗停止(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
-    // 新增：急停（独立指令，不作为控制类子命令），采用9数据位载荷并包裹边界
+    // 急停：发送 9 数据位帧（FF + 9字节 + FE），与配方下单格式一致（数据位补零）
     fun sendEmergencyStop(): Boolean {
-        val payload = buildAdminPayload9(0x09, 0, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送急停(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val payload9 = buildAdminPayload9(0x09, 0, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i(
+            "HardwareManager",
+            "发送急停(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}"
+        )
         return sendCommand(frame)
     }
 
     fun sendWaterStart(): Boolean {
-        val payload = buildAdminPayload9(0x03, 0x02, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送加水开始(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        // 文档对齐：加水开始不携带速度参数，后续速度由配方帧更新速度表决定
+        val payload9 = buildAdminPayload9(0x03, 0x02, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送加水开始(不携带速度)(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
     // 新增：加水开始（携带水速，0-255 -> 16进制放入P1）
     fun sendWaterStart(speed: Int): Boolean {
         val sp = speed.coerceIn(0, 255)
-        val payload = buildAdminPayload9(0x03, 0x02, sp, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i(
-            "HardwareManager",
-            "发送加水开始(含水速=${sp})(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}"
-        )
-        return sendCommand(frame)
+        // 先预设水通道最高速度（零配方，不出液），再下发固定的加水开始
+        try { primeWaterTopSpeed(sp) } catch (_: Exception) {}
+        return sendWaterStart()
     }
 
     fun sendWaterStop(): Boolean {
-        val payload = buildAdminPayload9(0x04, 0x02, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送加水停止(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val payload9 = buildAdminPayload9(0x04, 0x02, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送加水停止(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
     fun sendHX711Tare(): Boolean {
-        val payload = buildAdminPayload9(0x05, 0x01, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送HX711去皮(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val payload9 = buildAdminPayload9(0x05, 0x01, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送HX711去皮(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
     fun sendHX711Weigh(): Boolean {
-        val payload = buildAdminPayload9(0x05, 0x02, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送HX711称重(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val payload9 = buildAdminPayload9(0x05, 0x02, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送HX711称重(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
     fun sendHX711Calibrate(targetGrams: Int = 1000): Boolean {
         val hi = (targetGrams shr 8) and 0xFF
         val lo = targetGrams and 0xFF
-        // 9 数据位：CMD=0x05, P0=0x03, P1=0, P2=hi, P3=lo, 其余补零
-        val payload = buildAdminPayload9(0x05, 0x03, 0, hi, lo)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送HX711校准(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val payload9 = buildAdminPayload9(0x05, 0x03, 0, hi, lo)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送HX711校准(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
     fun sendContinueCommand(): Boolean {
-        // 独立指令：继续制作；按要求也采用 9 数据位并补零
-        val payload = buildAdminPayload9(0x07, 0, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送继续制作指令(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
-    }
-
-    fun sendRestartCommand(): Boolean {
-        // 独立指令：重新制作；按要求采用 9 数据位并补零
-        val payload = buildAdminPayload9(0x08, 0, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送重新制作指令(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
-    }
-
-    // 只出水：按文档推荐使用控制类子命令开始/停止
-    fun sendWaterOnlyStart(): Boolean {
-        val payload = buildAdminPayload9(0x03, 0x02, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送只出水开始(9数据位控制子命令): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
-    }
-
-    // 新增：只出水开始（携带水速，0-255 -> 16进制放入P1）
-    fun sendWaterOnlyStart(speed: Int): Boolean {
-        val sp = speed.coerceIn(0, 255)
-        val payload = buildAdminPayload9(0x03, 0x02, sp, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
+        val payload9 = buildAdminPayload9(0x07, 0, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
         DebugLogger.i(
             "HardwareManager",
-            "发送只出水开始(含水速=${sp})(9数据位控制子命令): ${frame.joinToString(" ") { "%02X".format(it) }}"
+            "发送继续制作指令(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}"
         )
         return sendCommand(frame)
     }
 
-    fun sendWaterOnlyStop(): Boolean {
-        val payload = buildAdminPayload9(0x04, 0x02, 0, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送只出水停止(9数据位控制子命令): ${frame.joinToString(" ") { "%02X".format(it) }}")
+    fun sendRestartCommand(): Boolean {
+        val payload9 = buildAdminPayload9(0x08, 0, 0, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i(
+            "HardwareManager",
+            "发送重新制作指令(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}"
+        )
         return sendCommand(frame)
     }
 
-    // 新增：1000g标准校准（保留原有指令路径）
-    // 约定：使用管理员扩展码 0x0B，P0/P1携带目标重量lo/hi
+    // 只出水：发送使用 11 字节（FF + 9 数据位 + FE），接收解析 7 字节
+    fun sendWaterOnlyStart(): Boolean {
+        // 文档对齐：只出水开始不携带速度参数，速度来源于此前的速度表预设
+        val payload9 = buildAdminPayload9(0x03, 0x02, 0x00, 0x00, 0x00)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送只出水开始(不携带速度)(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        return sendCommand(frame)
+    }
+
+    // 只出水（携带水速，放入P1）：FF + [03 02 SP 00 00 00 00 00 00] + FE
+    fun sendWaterOnlyStart(speed: Int): Boolean {
+        val sp = speed.coerceIn(0, 255)
+        // 先预设水通道最高速度，再下发固定的只出水开始
+        try { primeWaterTopSpeed(sp) } catch (_: Exception) {}
+        return sendWaterOnlyStart()
+    }
+
+    fun sendWaterOnlyStop(): Boolean {
+        val payload9 = buildAdminPayload9(0x04, 0x02, 0x00, 0x00, 0x00)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送只出水停止(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        return sendCommand(frame)
+    }
+
+    // 新增：预设水通道最高速度（通过发送零配方，仅更新速度表，不出液）
+    // 说明：固件侧仅在接收到制作帧(CMD=0x01/0x02)时调用 UpdateChannelTopSpeed(channel, topSpeed)。
+    // 因此为了让“只出水”使用指定速度，需先下发一个“体积全为0”的制作帧来刷新速度表。
+    fun primeWaterTopSpeed(topSpeed: Int): Boolean {
+        val cmd = 0x01 // 使用正常冰避免去皮
+        val waterSp = topSpeed.coerceIn(0, 255)
+        // 四通道体积均为0，仅设置水通道速度；果汁通道速度也设为0
+        val payload9 = buildLegacyRecipePacket(
+            cmd = cmd,
+            w1 = 0, v1 = waterSp,
+            w2 = 0, v2 = 0,
+            w3 = 0, v3 = 0,
+            w4 = 0, v4 = 0
+        )
+        val frame = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
+        DebugLogger.i(
+            "HardwareManager",
+            "预设水速(更新速度表，不出液): ${frame.joinToString(" ") { "%02X".format(it) }}; framed=$useFramedProtocol"
+        )
+        return sendCommand(frame)
+    }
+
+    // 标准砝码校准（11.8 改版对齐）：走 0x05 子命令 0x03
+    // 约定：Byte0=0x05(CMD)、Byte1=0x03(校准子命令)、Byte2=0(保留)、Byte3=hi、Byte4=lo、Byte5-8=0
+    // 若 targetGrams=1000（默认），则发送 hi=0、lo=0，由固件采用默认值（CALIB_DEFAULT_WEIGHT）
     fun sendCalibrateStandard(targetGrams: Int = 1000): Boolean {
-        val lo = targetGrams and 0xFF
-        val hi = (targetGrams shr 8) and 0xFF
-        val payload = buildAdminPayload9(0x0B, lo, hi, 0, 0)
-        val frame = if (useFramedProtocol) wrapWithBoundaries(payload) else payload
-        DebugLogger.i("HardwareManager", "发送标准校准指令(9数据位): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        val useDefault = targetGrams == 1000
+        val hi = if (useDefault) 0 else (targetGrams ushr 8) and 0xFF
+        val lo = if (useDefault) 0 else (targetGrams and 0xFF)
+        val payload9 = buildAdminPayload9(0x05, 0x03, 0x00, hi, lo)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送标准校准(FF + 9数据位 + FE 11.8): ${frame.joinToString(" ") { "%02X".format(it) }}")
         return sendCommand(frame)
     }
 
@@ -912,5 +1043,18 @@ class HardwareManager(
 
     fun setOnOrderCompletionListener(listener: (Boolean) -> Unit) {
         onOrderCompletionListener = listener
+    }
+
+    // 新增：温度/重量/中性完成事件监听注册
+    fun setOnTemperatureReportListener(listener: (Int) -> Unit) {
+        onTemperatureReportListener = listener
+    }
+
+    fun setOnWeightReportListener(listener: (Int) -> Unit) {
+        onWeightReportListener = listener
+    }
+
+    fun setOnNeutralCompletionListener(listener: () -> Unit) {
+        onNeutralCompletionListener = listener
     }
 }

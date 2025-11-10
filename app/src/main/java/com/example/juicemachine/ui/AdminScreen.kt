@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.outlined.DeviceThermostat
+import androidx.compose.material.icons.outlined.MonitorWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -85,9 +87,13 @@ fun AdminScreen(
     onDismissError: () -> Unit,
     onRestoreDefaults: () -> Unit,
     onNavigateToStatistics: () -> Unit,
+    // 新增：温度与重量展示
+    currentTemperature: Int?,
+    currentWeight: Int?,
     // 新增：只出水水速与输入回调
     waterOnlySpeed: Int,
-    onWaterOnlySpeedChange: (String) -> Unit
+    onWaterOnlySpeedChange: (String) -> Unit,
+    onSaveWaterOnlySpeed: () -> Unit
 ) {
     // 确认弹窗开关
     var showConfirmClean by remember { mutableStateOf(false) }
@@ -95,6 +101,8 @@ fun AdminScreen(
     var showConfirmRestore by remember { mutableStateOf(false) }
     // 新增：广告图片管理弹窗
     var showAdsManager by remember { mutableStateOf(false) }
+    // 新增：保存成功弹窗
+    var showSaveSuccess by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -106,6 +114,27 @@ fun AdminScreen(
                     }
                 },
                 actions = {
+                    // 在统计图标左侧加入温度/重量信息芯片（与后台风格一致）
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("温度 ${currentTemperature?.let { "$it°C" } ?: "—°C"}") },
+                        leadingIcon = { Icon(Icons.Outlined.DeviceThermostat, contentDescription = "温度") },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("重量 ${currentWeight?.let { "$it g" } ?: "— g"}") },
+                        leadingIcon = { Icon(Icons.Outlined.MonitorWeight, contentDescription = "重量") },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    )
+                    Spacer(Modifier.width(8.dp))
                     AssistChip(
                         onClick = onNavigateToStatistics,
                         label = { Text("统计") },
@@ -168,7 +197,7 @@ fun AdminScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("只出水水速 (0-255)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.widthIn(min = 120.dp))
+                Text("水速 (0-255)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.widthIn(min = 120.dp))
                 androidx.compose.material3.OutlinedTextField(
                     value = waterOnlySpeed.coerceIn(0, 255).toString(),
                     onValueChange = onWaterOnlySpeedChange,
@@ -177,6 +206,17 @@ fun AdminScreen(
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                     label = { Text("输入整数0-255") }
                 )
+                val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+                Button(
+                    onClick = {
+                        onSaveWaterOnlySpeed()
+                        keyboardController?.hide()
+                        showSaveSuccess = true
+                    },
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Text("保存")
+                }
             }
 
             // 已移除：系统偏好面板（与本APP需求不符）
@@ -241,8 +281,8 @@ fun AdminScreen(
     if (showConfirmRestore) {
         AlertDialog(
             onDismissRequest = { showConfirmRestore = false },
-            title = { Text("恢复默认配方") },
-            text = { Text("确定要恢复默认配方吗？此操作将覆盖当前自定义配方，且不可撤销。") },
+            title = { Text("确认恢复") },
+            text = { Text("确定要恢复默认配方吗？这将覆盖当前所有配方。") },
             confirmButton = {
                 TextButton(onClick = {
                     showConfirmRestore = false
@@ -251,6 +291,18 @@ fun AdminScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showConfirmRestore = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // 新增：保存成功弹窗
+    if (showSaveSuccess) {
+        AlertDialog(
+            onDismissRequest = { showSaveSuccess = false },
+            title = { Text("保存成功") },
+            text = { Text("水速已更新为 $waterOnlySpeed") },
+            confirmButton = {
+                TextButton(onClick = { showSaveSuccess = false }) { Text("确定") }
             }
         )
     }
@@ -295,14 +347,23 @@ private fun AdsManagerDialog(
             }
         } catch (_: Exception) { emptyList() }
     }
-    val defaultFromRecipes = remember(recipes, context) {
-        val list = recipes
-            .map { AdItem(uri = it.imageUri ?: "android.resource://${context.packageName}/${getDrawableForRecipe(it.name)}", title = it.name) }
+    // 显示广告页图片：优先持久化，其次使用内置广告资源，不再默认使用饮品图片
+    val builtInAds = remember(context) {
+        val pkg = context.packageName
+        listOf(
+            AdItem(uri = "android.resource://$pkg/${R.drawable.ad_ya_shi_xiang_1}", title = "鸭屎香柠檬茶"),
+            AdItem(uri = "android.resource://$pkg/${R.drawable.ad_liu_cheng_bai_xinag_1}", title = "柳橙百香"),
+            AdItem(uri = "android.resource://$pkg/${R.drawable.ad_mo_li_xue_ya_1}", title = "茉莉雪芽")
+        )
+    }
+    // 可选：从配方名称推导广告图（使用广告资源映射，而不是配方自定义图片）
+    val fromRecipes = remember(recipes, context) {
+        recipes
+            .map { AdItem(uri = "android.resource://${context.packageName}/${getDrawableForRecipe(it.name)}", title = it.name) }
             .distinctBy { it.uri }
             .take(5)
-        if (list.isNotEmpty()) list else listOf(AdItem(uri = "android.resource://${context.packageName}/${R.drawable.placeholder}", title = "宣传图"))
     }
-    val initialAds = if (initial.isEmpty()) defaultFromRecipes else initial
+    val initialAds = if (initial.isEmpty()) builtInAds else initial
 
     val images = remember { mutableStateListOf<AdItem>().apply { addAll(initialAds) } }
     // 用哈希字符串做脏检查（顺序敏感，包含标题）
@@ -413,8 +474,8 @@ private fun AdsManagerDialog(
                                  )
                                 AssistChip(
                                     modifier = Modifier.minimumInteractiveComponentSize(),
-                                     onClick = { images.clear(); images.addAll(defaultFromRecipes) },
-                                     enabled = defaultFromRecipes.isNotEmpty(),
+                                     onClick = { images.clear(); images.addAll(builtInAds) },
+                                     enabled = builtInAds.isNotEmpty(),
                                      label = { Text("默认") },
                                      leadingIcon = { Icon(Icons.Filled.Restore, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                      colors = AssistChipDefaults.assistChipColors(
@@ -437,10 +498,10 @@ private fun AdsManagerDialog(
                                     modifier = Modifier.minimumInteractiveComponentSize(),
                                      onClick = {
                                          var added = 0
-                                         defaultFromRecipes.forEach { u -> if (images.none { it.uri == u.uri }) { images.add(u); added++ } }
+                                         fromRecipes.forEach { u -> if (images.none { it.uri == u.uri }) { images.add(u); added++ } }
                                          scope.launch { snackbarHostState.showSnackbar("已追加 $added 张") }
                                      },
-                                     enabled = defaultFromRecipes.isNotEmpty(),
+                                     enabled = fromRecipes.isNotEmpty(),
                                      label = { Text("从配方") },
                                      leadingIcon = { Icon(Icons.Filled.Collections, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                      colors = AssistChipDefaults.assistChipColors(

@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -34,13 +36,18 @@ import android.annotation.SuppressLint
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: DrinkMenuViewModel by viewModels {
+    // 延迟初始化，避免在 Activity 尚未完全 attach 前访问系统服务导致崩溃
+    private val sharedPreferences by lazy { applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE) }
+
+    private val viewModelFactory by lazy {
         DrinkMenuViewModelFactory(
             (application as JuiceMachineApplication).repository,
             (application as JuiceMachineApplication).hardwareManager,
-            (application as JuiceMachineApplication).orderRepository
+            (application as JuiceMachineApplication).orderRepository,
+            sharedPreferences
         )
     }
+    private val viewModel: DrinkMenuViewModel by viewModels { viewModelFactory }
 
 
     // 权限请求启动器
@@ -54,20 +61,46 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 安装官方 SplashScreen（支持 Android 12+ 及回退库），并设置超时关闭避免卡住
+        val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        var keepSplash = true
+        splash.setKeepOnScreenCondition { keepSplash }
+        // 条件退出：首内容或首图就绪则退出；并设 200ms 上限兜底
+        lifecycleScope.launchWhenCreated {
+            try {
+                kotlinx.coroutines.delay(200)
+            } finally {
+                keepSplash = false
+            }
+        }
         
-        // 检查并请求必要权限
-        checkAndRequestPermissions()
-        
-        setContent {
-            JuiceMachineTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        AppNavigation(viewModel = viewModel)
+        // 先绘制首帧，权限请求延后到 onStart，避免冷启动卡在启动背景
+        try {
+            setContent {
+                JuiceMachineTheme {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            // 首帧进入或首图就绪时回调，立即释放 Splash
+                            AppNavigation(viewModel = viewModel, onFirstContentReady = { keepSplash = false })
+                        }
                     }
+                }
+            }
+        } catch (e: Throwable) {
+            // 兜底：若组合初始化异常，渲染一个简易提示界面以避免“无法打开”
+            com.example.juicemachine.util.DebugLogger.e("MainActivity", "Compose 初始化失败: ${e.message}", e, showToast = false)
+            // 异常也确保关闭 Splash
+            keepSplash = false
+            setContent {
+                androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                    androidx.compose.material3.Text(
+                        text = "应用启动异常，请导出日志并联系维护人员",
+                        modifier = androidx.compose.ui.Modifier.align(Alignment.Center)
+                    )
                 }
             }
         }
@@ -127,10 +160,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // 页面可见时主动连接串口
-        (application as JuiceMachineApplication).hardwareManager.connect { status ->
-            Log.d("MainActivity", "硬件状态: $status")
-        }
+        // 在可见后再请求权限，避免阻塞首帧
+        checkAndRequestPermissions()
+        // 连接逻辑已由 ViewModel 管理（初始化时触发），避免重复连接导致资源竞争或多次注册
     }
     override fun onDestroy() {
         super.onDestroy()

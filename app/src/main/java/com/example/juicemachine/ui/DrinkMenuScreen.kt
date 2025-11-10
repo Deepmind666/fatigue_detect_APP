@@ -55,14 +55,15 @@ import com.example.juicemachine.ui.theme.FreshGreen
 import com.example.juicemachine.ui.theme.FreshOrange
 import com.example.juicemachine.ui.theme.FreshRed
 import com.example.juicemachine.ui.model.IceMode
+// 移除下单页温度/重量图标后，相关导入不再需要
 
 private fun getDrawableForRecipe(recipeName: String): Int {
     return when (recipeName) {
-        "茉莉雪芽" -> R.drawable.mo_li_xue_ya_2
-        "柳橙百香" -> R.drawable.liu_cheng_bai_xiang
-        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang
+        "茉莉雪芽" -> R.drawable.mo_li_xue_ya3
+        "柳橙百香" -> R.drawable.liu_cheng_bai_xiang3
+        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang3
         // 兼容旧名称：满杯桑葚 已被鸭屎香柠檬茶替换
-        "满杯桑葚" -> R.drawable.ya_shi_xiang
+        "满杯桑葚" -> R.drawable.ya_shi_xiang3
         else -> R.drawable.placeholder
     }
 }
@@ -130,6 +131,12 @@ private fun getDrawableForRecipe(recipeName: String): Int {
         if (!uiState.isWaterOnlyActive) {
             lastInteraction = SystemClock.uptimeMillis()
         }
+    }
+
+    // 新增：硬件中性完成事件触发的广告页倒计时重置
+    LaunchedEffect(uiState.adsResetTick) {
+        // 每次计数变化都重置最近交互时间
+        lastInteraction = SystemClock.uptimeMillis()
     }
 
     Box(
@@ -293,8 +300,8 @@ fun Header(
                         color = Color.White.copy(alpha = 0.8f)
                     )
                 }
-                // 右侧操作按钮：急停 与 只出水
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 右侧操作区：急停 + 只出水（移除温度/重量状态芯片）
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     // 急停：仅保留三角警示图标（不显示文字）
                     IconButton(
                         onClick = onEmergencyStop,

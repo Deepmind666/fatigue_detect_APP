@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Solid brand background -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/splash_bg" />
+        </shape>
+    </item>
+    <!-- Center app icon to add identity during cold start -->
+    <item
+        android:gravity="center">
+        <bitmap
+            android:src="@drawable/ic_app_icon"
+            android:antialias="true" />
+    </item>
+</layer-list>

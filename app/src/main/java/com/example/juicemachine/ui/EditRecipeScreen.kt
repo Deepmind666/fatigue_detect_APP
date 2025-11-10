@@ -63,7 +63,6 @@ fun EditRecipeScreen(
     onJuiceTypeChange: (String) -> Unit,
     onJuiceChannelChange: (String) -> Unit,
     onHasPulpChange: (Boolean) -> Unit,
-    onWaterSpeedChange: (String) -> Unit,
     onJuiceSpeedChange: (String) -> Unit,
     // 新增：果肉补偿相关参数（按饮品独立）
     onPulpTotalCupsChange: (String) -> Unit,
@@ -189,30 +188,14 @@ fun EditRecipeScreen(
                                 }
                             )
                         } else {
-                            // 显示默认图片或占位符
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    Icons.Filled.PhotoCamera,
-                                    contentDescription = "选择图片",
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "点击选择饮品图片",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "支持横图、竖图自动适配",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
+                            // 显示默认图片（根据配方名称映射到drawable-nodpi的新图片）
+                            val defaultRes = getDrawableForRecipe(recipe.name)
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(id = defaultRes),
+                                contentDescription = "默认饮品图片",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
                         }
                     }
                     
@@ -358,6 +341,7 @@ fun EditRecipeScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
+            // 移除：水流速输入（水速为全局设置，不随配方变化）
             OutlinedTextField(
                 value = recipe.juice.toString(),
                 onValueChange = { validateInRange(it, 0..255, onJuiceChange) },
@@ -541,11 +525,11 @@ fun EditRecipeScreen(
 // 添加获取饮品图片的函数（与DrinkMenuScreen保持一致）
 private fun getDrawableForRecipe(recipeName: String): Int {
     return when (recipeName) {
-        "茉莉雪芽" -> R.drawable.mo_li_xue_ya_2
-        "柳橙百香" -> R.drawable.liu_cheng_bai_xiang
-        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang
+        "茉莉雪芽" -> R.drawable.mo_li_xue_ya3
+        "柳橙百香" -> R.drawable.liu_cheng_bai_xiang3
+        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang3
         // 兼容旧名称：满杯桑葚 已被鸭屎香柠檬茶替换
-        "满杯桑葚" -> R.drawable.ya_shi_xiang
+        "满杯桑葚" -> R.drawable.ya_shi_xiang3
         else -> R.drawable.placeholder
     }
 }
@@ -566,7 +550,6 @@ fun EditRecipeScreenPreview() {
         onJuiceTypeChange = {},
         onJuiceChannelChange = {},
         onHasPulpChange = {},
-        onWaterSpeedChange = {},
         onJuiceSpeedChange = {},
         onPulpTotalCupsChange = {},
         onPulpDecIntervalChange = {},

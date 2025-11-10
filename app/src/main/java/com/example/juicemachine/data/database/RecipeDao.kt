@@ -22,7 +22,7 @@ interface RecipeDao {
     suspend fun insertAll(recipes: List<Recipe>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertRecipe(recipe: Recipe)
+    suspend fun insertRecipe(recipe: Recipe): Long
 
     @Update
     suspend fun updateRecipe(recipe: Recipe)
@@ -37,4 +37,8 @@ interface RecipeDao {
     // 将当前剩余重量重置为默认值
     @Query("UPDATE recipes SET currentRemainingWeight = defaultRemainingWeight WHERE id = :id")
     suspend fun resetCurrentRemainingToDefault(id: Int)
+
+    // 保障：将果汁速度为0的配方统一修正为60（避免初始为0导致不出液）
+    @Query("UPDATE recipes SET juiceSpeed = :speed WHERE juiceSpeed = 0")
+    suspend fun updateJuiceSpeedDefaultIfZero(speed: Int = 60)
 }

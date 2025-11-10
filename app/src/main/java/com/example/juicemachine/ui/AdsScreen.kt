@@ -34,6 +34,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
+import androidx.compose.ui.res.painterResource
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -47,6 +48,8 @@ fun AdsScreen(
     images: List<AdItem>,
     intervalMs: Long = 10_000L,
     onNavigateToUser: () -> Unit,
+    // 首图加载成功时触发，用于释放启动页
+    onFirstImageReady: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var currentIndex by remember { mutableStateOf(0) }
@@ -57,13 +60,14 @@ fun AdsScreen(
     val gestureScope = rememberCoroutineScope()
 
     // 进入广告页 -> 沉浸式全屏；离开时恢复系统栏
+    // 调整：首帧后轻微延迟再隐藏，避免部分设备在冷启动阶段全屏黑
     val activity = LocalContext.current as? Activity
     DisposableEffect(activity) {
         activity?.let { act ->
             WindowCompat.setDecorFitsSystemWindows(act.window, false)
             val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
+            // 首帧后再隐藏系统栏：具体隐藏动作在下面的 LaunchedEffect 中执行
         }
         onDispose {
             activity?.let { act ->
@@ -72,6 +76,21 @@ fun AdsScreen(
                 WindowCompat.setDecorFitsSystemWindows(act.window, true)
             }
         }
+    }
+    // 首图就绪后隐藏系统栏（含 500ms 兜底），避免冷启动阶段的窗口切换导致白板/闪烁
+    var barsHiddenOnce by remember { mutableStateOf(false) }
+    var firstImageDisplayed by remember { mutableStateOf(false) }
+    var notifiedSplash by remember { mutableStateOf(false) }
+    LaunchedEffect(activity, firstImageDisplayed) {
+        val act = activity ?: return@LaunchedEffect
+        if (barsHiddenOnce) return@LaunchedEffect
+        if (!firstImageDisplayed) {
+            // 若首图尚未就绪，等待极短时间后仍隐藏一次，避免长时间不全屏
+            kotlinx.coroutines.delay(500)
+        }
+        val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        barsHiddenOnce = true
     }
 // 删除空行无符号标记
      // 自动轮播：按间隔切换到下一张，循环；按压或拖拽时暂停
@@ -96,9 +115,10 @@ fun AdsScreen(
 
     // 轻微的 Ken Burns 动效
     val scale = remember { Animatable(1.0f) }
-    LaunchedEffect(currentIndex, isPaused, data, intervalMs) {
+    LaunchedEffect(currentIndex, isPaused, data, intervalMs, firstImageDisplayed) {
         scale.snapTo(1.0f)
-        if (!isPaused && data.isNotEmpty()) {
+        // 冷启动优化：首图阶段不启用 Ken Burns 动效，减少首帧绘制开销
+        if (firstImageDisplayed && !isPaused && data.isNotEmpty()) {
             scale.animateTo(
                 targetValue = 1.03f,
                 animationSpec = tween(durationMillis = (intervalMs * 0.95f).toInt(), easing = LinearEasing)
@@ -138,7 +158,8 @@ fun AdsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            // 背景改为应用主题背景，避免资源加载失败时整屏纯黑
+            .background(MaterialTheme.colorScheme.background)
             // 点击进入点单页
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -208,15 +229,49 @@ fun AdsScreen(
                 val uri = item.uri
                 val title = item.title?.takeIf { it.isNotBlank() } ?: deriveNameFromUri(uri)
                 Box(Modifier.fillMaxSize()) {
-                    AsyncImage(
+                    // 使用 Subcompose 版本以在加载失败时提供更友好的兜底
+                    coil.compose.SubcomposeAsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(uri)
                             .size(screenWidthPx, screenHeightPx)
                             .precision(Precision.EXACT)
-                            .crossfade(true)
+                            // 冷启动优化：首图禁用crossfade，其后仍保留（不改图片尺寸）
+                            .crossfade(firstImageDisplayed)
+                            .listener(object : ImageRequest.Listener {
+                                override fun onSuccess(request: ImageRequest, result: coil.request.SuccessResult) {
+                                    firstImageDisplayed = true
+                                    if (!notifiedSplash) {
+                                        onFirstImageReady?.invoke()
+                                        notifiedSplash = true
+                                    }
+                                }
+                                override fun onError(request: ImageRequest, result: coil.request.ErrorResult) {
+                                    // 加载失败也通知一次，避免启动页长时间保留
+                                    if (!notifiedSplash) {
+                                        onFirstImageReady?.invoke()
+                                        notifiedSplash = true
+                                    }
+                                }
+                            })
                             .build(),
                         contentDescription = null,
-                        contentScale = ContentScale.FillBounds, // 强制全屏铺满（可能拉伸，不保留比例）
+                        contentScale = ContentScale.FillBounds,
+                        loading = {
+                            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.CircularProgressIndicator()
+                            }
+                        },
+                        error = {
+                            // 兜底：显示欢迎文字而非整屏黑
+                            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.Text(
+                                    text = "欢迎使用智能果汁机",
+                                    color = Color.Black,
+                                    fontSize = 28.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {

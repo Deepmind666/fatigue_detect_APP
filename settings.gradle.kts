@@ -15,4 +15,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Juice Machine"
-include(":app") 
+include(":app")
+include(":baselineprofile")

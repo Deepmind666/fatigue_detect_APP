@@ -31,7 +31,7 @@ data class Recipe(
     @ColumnInfo(defaultValue = "2") val pulpDecInterval: Int = 2,
     @ColumnInfo(defaultValue = "2") val pulpDecAmount: Int = 2,
     // 新增：只出水流速（0 表示采用设备默认）
-    @ColumnInfo(defaultValue = "0") val waterSpeed: Int = 0,
-    // 新增：果汁流速（0 表示采用设备默认）
-    @ColumnInfo(defaultValue = "0") val juiceSpeed: Int = 0
+    @ColumnInfo(defaultValue = "60") val waterSpeed: Int = 60,
+    // 新增：果汁流速（默认 60，避免初始为 0 导致不出液）
+    @ColumnInfo(defaultValue = "60") val juiceSpeed: Int = 60
 )

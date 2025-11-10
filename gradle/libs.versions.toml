@@ -1,17 +1,17 @@
 [versions]
 activityCompose = "1.9.0"
 activityKtx = "1.9.0"
-androidApplication = "8.9.2"
+androidApplication = "8.3.0"
 appcompat = "1.6.1"
 composeBom = "2024.06.00"
 coreKtx = "1.13.1"
 espressoCore = "3.5.1"
 extJunit = "1.1.5"
-googleDevtoolsKsp = "1.9.23-1.0.20"
+googleDevtoolsKsp = "1.9.24-1.0.20"
 javaxInject = "1"
-jetbrainsKotlinAndroid = "1.9.23"
+jetbrainsKotlinAndroid = "1.9.24"
 junit = "4.13.2"
-kotlin = "1.9.23"
+kotlin = "1.9.24"
 kotlinxCoroutines = "1.8.0"
 kotlinxSerializationJson = "1.6.3"
 lifecycleRuntimeKtx = "2.8.0"
@@ -19,6 +19,7 @@ navigationCompose = "2.7.7"
 room = "2.6.1"
 serializationJson = "1.6.3"
 usbSerial = "3.9.0"
+coreSplashscreen = "1.0.1"
 
 [libraries]
 activityCompose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -44,6 +45,7 @@ composeUiGraphics = { module = "androidx.compose.ui:ui-graphics" }
 composeUiToolingPreview = { module = "androidx.compose.ui:ui-tooling-preview" }
 composeMaterial3 = { module = "androidx.compose.material3:material3" }
 composeMaterialIconsExtended = { module = "androidx.compose.material:material-icons-extended" }
+coreSplashscreen = { module = "androidx.core:core-splashscreen", version.ref = "coreSplashscreen" }
 
 [bundles]
 composeBundle = ["composeUi", "composeUiGraphics", "composeUiToolingPreview", "composeMaterial3"]

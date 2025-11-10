@@ -47,7 +47,7 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.13"
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
     packaging {
         resources {
@@ -64,6 +64,7 @@ dependencies {
     implementation(platform(libs.composeBom))
     implementation(libs.bundles.composeBundle)
     implementation(libs.composeMaterialIconsExtended)
+    implementation(libs.coreSplashscreen)
 
     // Room and Database
     implementation(libs.bundles.roomBundle)
@@ -88,6 +89,9 @@ dependencies {
 
     // Android Keystore + Crypto for encrypting sensitive preferences
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Install baseline profiles from libraries at app install to speed cold start
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 
     // Testing
     testImplementation(libs.junit)

@@ -3,6 +3,9 @@ package com.example.juicemachine.ui
 import android.util.Log
 import android.content.Context
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
@@ -13,6 +16,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
@@ -24,6 +29,11 @@ import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 
 sealed class Screen(val route: String) {
     object DrinkMenu : Screen("drink_menu")
@@ -36,21 +46,74 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun AppNavigation(viewModel: DrinkMenuViewModel) {
+fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit) {
     val navController = rememberNavController()
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    // 首帧：记录组合进入日志，帮助定位黑屏是否停在启动背景
+    LaunchedEffect(Unit) {
+        // 组合开始即通知首内容就绪，释放 Splash（若仍在）
+        onFirstContentReady()
+        com.example.juicemachine.util.DebugLogger.i("AppNavigation", "进入组合：AppNavigation 组合已开始")
+    }
+
+    // 统一计算广告素材列表（持久化 > 内置 > 配方）供前景/背景复用
+    val images: List<AdItem> = remember(uiState.recipes) {
+        val prefs = context.getSharedPreferences("ads_prefs", android.content.Context.MODE_PRIVATE)
+        val json = prefs.getString("ads_image_uris", null)
+        val persisted: List<AdItem> = try {
+            if (json.isNullOrBlank()) emptyList() else org.json.JSONArray(json).let { arr ->
+                buildList(arr.length()) {
+                    for (i in 0 until arr.length()) {
+                        when (val e = arr.get(i)) {
+                            is org.json.JSONObject -> add(
+                                AdItem(
+                                    uri = e.optString("uri"),
+                                    title = e.optString("title").takeIf { it.isNotBlank() }
+                                )
+                            )
+                            is String -> add(AdItem(uri = e))
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) { emptyList() }
+
+        val fromRecipes: List<AdItem> = uiState.recipes
+            .map { AdItem(uri = it.imageUri ?: "android.resource://${context.packageName}/${getDrawableForRecipe(it.name)}", title = it.name) }
+            .distinctBy { it.uri }
+            .take(5)
+        val builtIn: List<AdItem> = getBuiltInAds(context)
+
+        when {
+            persisted.isNotEmpty() -> persisted
+            builtIn.isNotEmpty() -> builtIn
+            else -> fromRecipes
+        }
+    }
+
+    // 立即触发硬件连接初始化（牺牲少量启动时间，确保指令更快可用）
+    LaunchedEffect(Unit) {
+        viewModel.initializeHardwareAfterFirstFrame()
+        // 延后触发：默认配方兜底插入与广告预热（避免冷启动阶段触发Room与图片IO）
+        try {
+            val app = (context.applicationContext as? com.example.juicemachine.JuiceMachineApplication)
+            app?.ensureDefaultRecipesAsync()
+            app?.preheatAdsAsync()
+        } catch (_: Exception) { /* ignore */ }
+    }
     // 全局：无论在哪个页面都显示重量异常弹窗（NavHost 外层），统一使用自定义 WeightChangeDialog
     // 避免重复弹两次，移除简单AlertDialog版本
-// 全局：无论在哪个页面都显示重量异常弹窗
-android.util.Log.e("AppNavigation", "=== 检查全局弹窗状态: showWeightChangeDialog=${uiState.showWeightChangeDialog} ===")
-if (uiState.showWeightChangeDialog) {
-    android.util.Log.e("AppNavigation", "=== 全局弹窗条件命中，显示完整WeightChangeDialog ===")
-    WeightChangeDialog(
-        onContinue = viewModel::onContinueRecipe,
-        onRestart = viewModel::onRestartRecipe,
-        onDismiss = viewModel::onContinueRecipe
-    )
-}
+    // 全局：无论在哪个页面都显示重量异常弹窗
+    android.util.Log.d("AppNavigation", "检查弹窗: showWeightChangeDialog=${uiState.showWeightChangeDialog}")
+    if (uiState.showWeightChangeDialog) {
+        WeightChangeDialog(
+            onContinue = viewModel::onContinueRecipe,
+            onRestart = viewModel::onRestartRecipe,
+            onDismiss = viewModel::onContinueRecipe
+        )
+    }
 
     // 新增：全局称重等待与结果提示（适用于后台页面触发称重）
     if (uiState.showWeighWaitingDialog) {
@@ -99,51 +162,26 @@ if (uiState.showWeightChangeDialog) {
     }
 
 
+    // 背景保持纯白：取消静态广告背景兜底
+
+    // 前景导航栈（保持与原实现一致）
     NavHost(navController = navController, startDestination = Screen.Ads.route) {
         composable(Screen.Ads.route) {
-            val context = androidx.compose.ui.platform.LocalContext.current
-            val prefs = context.getSharedPreferences("ads_prefs", android.content.Context.MODE_PRIVATE)
-            val json = prefs.getString("ads_image_uris", null)
-            val persisted: List<AdItem> = try {
-                if (json.isNullOrBlank()) emptyList() else org.json.JSONArray(json).let { arr ->
-                    buildList(arr.length()) {
-                        for (i in 0 until arr.length()) {
-                            when (val e = arr.get(i)) {
-                                is org.json.JSONObject -> add(
-                                    AdItem(
-                                        uri = e.optString("uri"),
-                                        title = e.optString("title").takeIf { it.isNotBlank() }
-                                    )
-                                )
-                                is String -> add(AdItem(uri = e))
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) { emptyList() }
-
-            val fromRecipes: List<AdItem> = uiState.recipes
-                .map { AdItem(uri = it.imageUri ?: "android.resource://${context.packageName}/${getDrawableForRecipe(it.name)}", title = it.name) }
-                .distinctBy { it.uri }
-                .take(5)
-            // 内置默认广告图（确保首次进入即有素材可播）
-            val builtIn: List<AdItem> = getBuiltInAds(context)
-            val images: List<AdItem> = when {
-                // 1) 用户已添加/替换的广告（最高优先级，支持后期替换）
-                persisted.isNotEmpty() -> persisted
-                // 2) APK 内置 2:1 广告资源（安装即有）
-                builtIn.isNotEmpty() -> builtIn
-                // 3) 回退到配方图片
-                else -> fromRecipes
-            }
-
             AdsScreen(
                 images = images,
                 intervalMs = 15_000L,
-                onNavigateToUser = { navController.navigate(Screen.DrinkMenu.route) }
+                onNavigateToUser = { navController.navigate(Screen.DrinkMenu.route) },
+                // 首图加载成功时回调，确保 Splash 已退出
+                onFirstImageReady = onFirstContentReady
             )
         }
         composable(Screen.DrinkMenu.route) {
+            // 页面进入：启动配方收集（避免冷启动阶段打开数据库）
+            LaunchedEffect(Unit) { viewModel.onDrinkMenuVisible() }
+            // 页面退出：停止收集，释放资源
+            DisposableEffect(Unit) {
+                onDispose { viewModel.onDrinkMenuHidden() }
+            }
             DrinkMenuScreen(
                 uiState = uiState,
                 onRecipeClick = viewModel::onRecipeClick,
@@ -182,9 +220,13 @@ if (uiState.showWeightChangeDialog) {
                 onDismissError = viewModel::clearError,
                 onRestoreDefaults = viewModel::restoreDefaultRecipes,
                 onNavigateToStatistics = { navController.navigate(Screen.Statistics.route) },
+                // 传入温度与重量数据显示
+                currentTemperature = uiState.currentTemperature,
+                currentWeight = uiState.currentWeight,
                 // 新增：只出水水速与回调
                 waterOnlySpeed = uiState.waterOnlySpeed,
-                onWaterOnlySpeedChange = viewModel::onWaterOnlySpeedChange
+                onWaterOnlySpeedChange = viewModel::onWaterOnlySpeedChange,
+                onSaveWaterOnlySpeed = viewModel::saveWaterOnlySpeed
             )
         }
         // 新增：客户管理界面
@@ -211,7 +253,6 @@ if (uiState.showWeightChangeDialog) {
                 onJuiceTypeChange = viewModel::onJuiceTypeChange,
                 onJuiceChannelChange = viewModel::onJuiceChannelChange,
                 onHasPulpChange = viewModel::onHasPulpChange,
-                onWaterSpeedChange = viewModel::onWaterSpeedChange,
                 onJuiceSpeedChange = viewModel::onJuiceSpeedChange,
                 // 新增：果肉补偿参数回调（按饮品独立）
                 onPulpTotalCupsChange = viewModel::onPulpTotalCupsChange,
@@ -265,6 +306,9 @@ private fun getBuiltInAds(context: Context): List<AdItem> {
 }
 
 // 已固定为三张指定 2:1 广告图，见上方 getBuiltInAds 实现
+
+// 兜底背景：首屏始终显示一张广告图（或纯黑），避免白屏
+// 删除静态广告背景兜底，恢复应用主题的纯白背景
 
 
 

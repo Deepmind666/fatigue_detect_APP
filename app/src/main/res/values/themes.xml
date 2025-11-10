@@ -1,6 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Base application theme with SplashScreen API support -->
     <style name="Theme.JuiceMachine" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- Android 12+ / backport: configure splash screen appearance -->
+        <item name="android:windowSplashScreenBackground">@color/splash_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_app_icon</item>
+        <!-- Use the same theme after splash -->
+        <item name="postSplashScreenTheme">@style/Theme.JuiceMachine</item>
+        <!-- 移除静态 windowBackground，避免卡在冷启动背景 -->
     </style>
-</resources> 
+</resources>

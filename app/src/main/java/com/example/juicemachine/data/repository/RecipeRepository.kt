@@ -8,8 +8,8 @@ class RecipeRepository(private val recipeDao: RecipeDao) {
 
     val allRecipes: Flow<List<Recipe>> = recipeDao.getAllRecipes()
 
-    suspend fun insertRecipe(recipe: Recipe) {
-        recipeDao.insertRecipe(recipe)
+    suspend fun insertRecipe(recipe: Recipe): Long {
+        return recipeDao.insertRecipe(recipe)
     }
 
     suspend fun updateRecipe(recipe: Recipe) {
