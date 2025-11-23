@@ -80,22 +80,11 @@ class HardwareManager(
     private var serialPort: UsbSerialPort? = null
     // 与当前端口绑定的IO管理器（库负责异步读写回调）
     private var usbIoManager: SerialInputOutputManager? = null
-    // 兼容多端口场景时的集合（当前逻辑只启用一个）
-    private val openedPorts: MutableList<UsbSerialPort> = mutableListOf()
-    private val ioManagers: MutableList<SerialInputOutputManager> = mutableListOf()
-    // 资源集合锁，避免并发修改导致崩溃
-    private val portLock = Any()
     // 写入锁，避免多个调用同时写串口
     private val writeLock = Any()
-    @Volatile private var toastOnSend: Boolean = false
-    // 手动读取任务（保留以兼容历史实现，当前主要依赖IO管理器回调）
-    private var manualReadJob: Job? = null
-    private val manualReadJobs: MutableList<Job> = mutableListOf()
     // 自动重连控制
     private var reconnectJob: Job? = null
     private var reconnectAttempts: Int = 0
-    // 二进制字节流缓冲（仅用于调试/扩展；真实解析使用 frameBuffer）
-    private val binaryRxBuffer: MutableList<Byte> = ArrayList(2048)
     // 对外连接状态（只读），由连接/断开/错误路径维护
     var isConnected: Boolean = false
         private set
@@ -125,6 +114,8 @@ class HardwareManager(
     private var usbReceiver: BroadcastReceiver? = null
     private var usbReceiverRegistered: Boolean = false
 
+    private var lastPrimedWaterTopSpeed: Int? = null
+
     private fun indexOfByte(buf: List<Byte>, value: Byte, start: Int = 0): Int {
         for (i in start until buf.size) if (buf[i] == value) return i
         return -1
@@ -148,7 +139,7 @@ class HardwareManager(
             if (startIdx == -1) return // 没有起始标记，等待更多数据
             // 丢弃起始标记之前的无效数据
             if (startIdx > 0) {
-                repeat(startIdx) { frameBuffer.removeAt(0) }
+                frameBuffer.subList(0, startIdx).clear()
             }
             // 查找结束标记
             val endIdx = indexOfByte(frameBuffer, 0xFE.toByte(), 1)
@@ -159,7 +150,7 @@ class HardwareManager(
             for (i in 0 until frameLen) frame[i] = frameBuffer[i]
 
             // 移除已消费字节
-            repeat(frameLen) { frameBuffer.removeAt(0) }
+            frameBuffer.subList(0, frameLen).clear()
 
             // 仅处理 7 字节协议帧（后端→前端）
             if (frameLen >= 7 && frame[0] == 0xFF.toByte() && frame[frameLen - 1] == 0xFE.toByte()) {
@@ -308,17 +299,19 @@ class HardwareManager(
     override fun onNewData(data: ByteArray) {
         if (data.isNotEmpty()) {
             val now = System.currentTimeMillis()
-            if (now - lastRxLogMillis >= 1000L) {
-                val hexString = data.joinToString(separator = " ") { "%02X".format(it) }
-                Log.d("HardwareManager", "接收到数据(采样): $hexString")
-                DebugLogger.i("HardwareManager", "接收到数据(采样): $hexString")
-                lastRxLogMillis = now
+            if (DebugLogger.isVerboseEnabled()) {
+                if (now - lastRxLogMillis >= 1000L) {
+                    val hexString = data.joinToString(separator = " ") { "%02X".format(it) }
+                    Log.d("HardwareManager", "接收到数据(采样): $hexString")
+                    DebugLogger.i("HardwareManager", "接收到数据(采样): $hexString")
+                    lastRxLogMillis = now
+                }
             }
             // 仅解析 7 字节帧（FF ... FE）；不再解析旧规 5 字节 FD/FC
             for (b in data) frameBuffer.add(b)
             if (frameBuffer.size > maxBufferSize) {
                 val toDrop = frameBuffer.size - maxBufferSize
-                repeat(toDrop) { if (frameBuffer.isNotEmpty()) frameBuffer.removeAt(0) }
+                if (toDrop > 0) frameBuffer.subList(0, toDrop).clear()
             }
             tryParseFramesFromBuffer()
         }
@@ -328,7 +321,7 @@ class HardwareManager(
         Log.d("HardwareManager", "connect called")
         DebugLogger.i("HardwareManager", "开始连接", showToast = false)
         // 冷启动优化：若当前无连接且资源集合为空，跳过一次全量断开以减少开销
-        val needDisconnect = isConnected || synchronized(portLock) { openedPorts.isNotEmpty() || ioManagers.isNotEmpty() }
+        val needDisconnect = isConnected || (serialPort != null) || (usbIoManager != null)
         if (needDisconnect) {
             disconnect()
         }
@@ -514,27 +507,6 @@ class HardwareManager(
 
     // 旧扩展（含补偿字段）的载荷构造：目前已按新要求停用，仅保留以备后续兼容。
     // 实际发送采用 9 数据位（CMD + W1 V1 W2 V2 W3 V3 W4 V4），外层 FF/FE 包裹。
-    private fun buildNewRecipePacket(
-        cmd: Int,
-        w1: Int, v1: Int,
-        w2: Int, v2: Int,
-        w3: Int, v3: Int,
-        w4: Int, v4: Int,
-        totalCups: Int,
-        decInterval: Int,
-        decAmount: Int
-    ): ByteArray {
-        return byteArrayOf(
-            (cmd and 0xFF).toByte(),
-            (w1 and 0xFF).toByte(), (v1 and 0xFF).toByte(),
-            (w2 and 0xFF).toByte(), (v2 and 0xFF).toByte(),
-            (w3 and 0xFF).toByte(), (v3 and 0xFF).toByte(),
-            (w4 and 0xFF).toByte(), (v4 and 0xFF).toByte(),
-            (totalCups and 0xFF).toByte(),
-            (decInterval and 0xFF).toByte(),
-            (decAmount and 0xFF).toByte()
-        )
-    }
 
     // 旧规配方包：仅 9 字节（CMD + 8 个 w/v），无补偿字段、无边界
     private fun buildLegacyRecipePacket(
@@ -564,6 +536,7 @@ class HardwareManager(
 
     
 
+    private val writeTimeoutMs: Int = 500
     private fun sendCommand(frame: ByteArray): Boolean {
         val port = serialPort
         if (!isConnected || port == null) {
@@ -574,13 +547,12 @@ class HardwareManager(
             return false
         }
         return try {
-            // 单端口发送，使用较短的 2000ms 超时（与旧版一致）
-            synchronized(writeLock) {
-                port.write(frame, 2000)
+            synchronized(writeLock) { port.write(frame, writeTimeoutMs) }
+            if (DebugLogger.isVerboseEnabled()) {
+                val hex = frame.joinToString(" ") { "%02X".format(it) }
+                Log.d("HardwareManager", "已发送: $hex 到端口 ${port.portNumber}")
+                DebugLogger.i("HardwareManager", "已发送: $hex 到端口 ${port.portNumber}", showToast = false)
             }
-            val hex = frame.joinToString(" ") { "%02X".format(it) }
-            Log.d("HardwareManager", "已发送: $hex 到端口 ${port.portNumber}")
-            DebugLogger.i("HardwareManager", "已发送: $hex 到端口 ${port.portNumber}", showToast = false)
             true
         } catch (e: IOException) {
             Log.e("HardwareManager", "发送失败(端口${port.portNumber}): ${e.message}", e)
@@ -591,6 +563,32 @@ class HardwareManager(
             DebugLogger.e("HardwareManager", "发送过程中发生异常: ${e.message}", e, showToast = false)
             false
         }
+    }
+
+    private fun sendCommandWithRetry(frame: ByteArray): Boolean {
+        val port = serialPort ?: return false
+        var lastError: Exception? = null
+        repeat(2) {
+            try {
+                synchronized(writeLock) { port.write(frame, writeTimeoutMs) }
+                if (DebugLogger.isVerboseEnabled()) {
+                    val hex = frame.joinToString(" ") { "%02X".format(it) }
+                    Log.d("HardwareManager", "已发送: $hex 到端口 ${port.portNumber}")
+                    DebugLogger.i("HardwareManager", "已发送: $hex 到端口 ${port.portNumber}", showToast = false)
+                }
+                return true
+            } catch (e: IOException) {
+                lastError = e
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        val err = lastError
+        if (err != null) {
+            Log.e("HardwareManager", "发送失败(端口${port.portNumber}): ${err.message}", err)
+            DebugLogger.e("HardwareManager", "发送失败(端口${port.portNumber}): ${err.message}", err, showToast = false)
+        }
+        return false
     }
 
     fun makeJuice(recipe: Recipe, cupSize: String, withIce: Boolean): Boolean {
@@ -632,7 +630,7 @@ class HardwareManager(
                 "HardwareManager",
                 "发送旧规配方(无边界) ${if (withIce) "正常冰(CMD=0x01)" else "去冰(CMD=0x02)"}: ${legacy.joinToString(" ") { "%02X".format(it) }}"
             )
-            return sendCommand(legacy)
+            return sendCommandWithRetry(legacy)
         } else {
             // 新规：仅下发 9 数据位（CMD + W1 V1 W2 V2 W3 V3 W4 V4），外层 FF/FE 包裹
             val payload9 = buildLegacyRecipePacket(
@@ -655,7 +653,7 @@ class HardwareManager(
                 "HardwareManager",
                 "发送新规配方(FF + 9数据位 + FE) ${if (withIce) "正常冰(CMD=0x01)" else "去冰(CMD=0x02)"}: ${frame.joinToString(" ") { "%02X".format(it) }}"
             )
-            return sendCommand(frame)
+            return sendCommandWithRetry(frame)
         }
     }
 
@@ -702,7 +700,7 @@ class HardwareManager(
                 "HardwareManager",
                 "发送旧规配方(无边界，忽略补偿) ${if (withIce) "正常冰(CMD=0x01)" else "去冰(CMD=0x02)"}: ${legacy.joinToString(" ") { "%02X".format(it) }}"
             )
-            return sendCommand(legacy)
+            return sendCommandWithRetry(legacy)
         } else {
             // 新规：补偿仅用于前端自调，不下发额外字段；仍发送 9 数据位
             val payload9 = buildLegacyRecipePacket(
@@ -725,7 +723,7 @@ class HardwareManager(
                 "HardwareManager",
                 "发送新规配方(FF + 9数据位 + FE，补偿不下发) ${if (withIce) "正常冰(CMD=0x01)" else "去冰(CMD=0x02)"}: ${frame.joinToString(" ") { "%02X".format(it) }}"
             )
-            return sendCommand(frame)
+            return sendCommandWithRetry(frame)
         }
     }
 
@@ -757,7 +755,7 @@ class HardwareManager(
                 "HardwareManager",
                 "发送旧规热饮配方(无边界，CMD=0x10，水量=0): ${legacy.joinToString(" ") { "%02X".format(it) }}"
             )
-            return sendCommand(legacy)
+            return sendCommandWithRetry(legacy)
         } else {
             val payload9 = buildLegacyRecipePacket(
                 cmd = cmd,
@@ -771,7 +769,7 @@ class HardwareManager(
                 "HardwareManager",
                 "发送新规热饮配方(FF + 9数据位 + FE，CMD=0x10，水量=0): ${frame.joinToString(" ") { "%02X".format(it) }}"
             )
-            return sendCommand(frame)
+            return sendCommandWithRetry(frame)
         }
     }
 
@@ -823,9 +821,10 @@ class HardwareManager(
     // 新增：加水开始（携带水速，0-255 -> 16进制放入P1）
     fun sendWaterStart(speed: Int): Boolean {
         val sp = speed.coerceIn(0, 255)
-        // 先预设水通道最高速度（零配方，不出液），再下发固定的加水开始
-        try { primeWaterTopSpeed(sp) } catch (_: Exception) {}
-        return sendWaterStart()
+        val payload9 = buildAdminPayload9(0x03, 0x02, sp, 0, 0)
+        val frame = wrapWithBoundaries(payload9)
+        DebugLogger.i("HardwareManager", "发送加水开始(携带速度=${sp})(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        return sendCommand(frame)
     }
 
     fun sendWaterStop(): Boolean {
@@ -860,46 +859,35 @@ class HardwareManager(
 
     fun sendContinueCommand(): Boolean {
         val payload9 = buildAdminPayload9(0x07, 0, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i(
-            "HardwareManager",
-            "发送继续制作指令(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}"
-        )
-        return sendCommand(frame)
+        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
+        return sendCommand(data)
     }
 
     fun sendRestartCommand(): Boolean {
         val payload9 = buildAdminPayload9(0x08, 0, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i(
-            "HardwareManager",
-            "发送重新制作指令(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}"
-        )
-        return sendCommand(frame)
+        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
+        return sendCommand(data)
     }
 
     // 只出水：发送使用 11 字节（FF + 9 数据位 + FE），接收解析 7 字节
     fun sendWaterOnlyStart(): Boolean {
-        // 文档对齐：只出水开始不携带速度参数，速度来源于此前的速度表预设
         val payload9 = buildAdminPayload9(0x03, 0x02, 0x00, 0x00, 0x00)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送只出水开始(不携带速度)(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
+        return sendCommand(data)
     }
 
     // 只出水（携带水速，放入P1）：FF + [03 02 SP 00 00 00 00 00 00] + FE
     fun sendWaterOnlyStart(speed: Int): Boolean {
         val sp = speed.coerceIn(0, 255)
-        // 先预设水通道最高速度，再下发固定的只出水开始
-        try { primeWaterTopSpeed(sp) } catch (_: Exception) {}
-        return sendWaterOnlyStart()
+        val payload9 = buildAdminPayload9(0x03, 0x02, sp, 0x00, 0x00)
+        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
+        return sendCommand(data)
     }
 
     fun sendWaterOnlyStop(): Boolean {
         val payload9 = buildAdminPayload9(0x04, 0x02, 0x00, 0x00, 0x00)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送只出水停止(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
+        return sendCommand(data)
     }
 
     // 新增：预设水通道最高速度（通过发送零配方，仅更新速度表，不出液）
@@ -921,7 +909,9 @@ class HardwareManager(
             "HardwareManager",
             "预设水速(更新速度表，不出液): ${frame.joinToString(" ") { "%02X".format(it) }}; framed=$useFramedProtocol"
         )
-        return sendCommand(frame)
+        val ok = sendCommand(frame)
+        if (ok) lastPrimedWaterTopSpeed = waterSp
+        return ok
     }
 
     // 标准砝码校准（11.8 改版对齐）：走 0x05 子命令 0x03
@@ -939,23 +929,10 @@ class HardwareManager(
 
     fun disconnect() {
         try {
-            // 在锁内获取当前集合快照，逐一停止/关闭，避免并发修改
-            val managersSnapshot: List<SerialInputOutputManager> = synchronized(portLock) { ioManagers.toList() }
-            managersSnapshot.forEach { manager ->
-                try { manager.stop() } catch (_: Exception) {}
-            }
-            synchronized(portLock) { ioManagers.clear() }
-
-            val portsSnapshot: List<UsbSerialPort> = synchronized(portLock) { openedPorts.toList() }
-            portsSnapshot.forEach { port ->
-                try { port.close() } catch (_: Exception) {}
-            }
-            synchronized(portLock) { openedPorts.clear() }
-
+            try { usbIoManager?.stop() } catch (_: Exception) {}
+            try { serialPort?.close() } catch (_: Exception) {}
             serialPort = null
             usbIoManager = null
-            try { manualReadJobs.forEach { it.cancel() } } catch (_: Exception) {}
-            manualReadJobs.clear()
             // 取消重连任务
             try { reconnectJob?.cancel() } catch (_: Exception) {}
             reconnectJob = null
@@ -1029,9 +1006,6 @@ class HardwareManager(
         scheduleReconnect()
     }
 
-    fun setToastOnSend(enabled: Boolean) {
-        toastOnSend = enabled
-    }
 
     fun setOnStatusListener(listener: (String) -> Unit) {
         onStatusListener = listener

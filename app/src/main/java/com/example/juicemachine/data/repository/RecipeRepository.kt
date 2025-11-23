@@ -31,4 +31,27 @@ class RecipeRepository(private val recipeDao: RecipeDao) {
     suspend fun resetCurrentRemainingToDefault(id: Int) {
         recipeDao.resetCurrentRemainingToDefault(id)
     }
+    suspend fun updateRecipeFields(r: Recipe) {
+        recipeDao.updateRecipeFields(
+            id = r.id,
+            name = r.name,
+            water = r.water,
+            juice = r.juice,
+            price = r.price,
+            defaultRemainingWeight = r.defaultRemainingWeight,
+            currentRemainingWeight = r.currentRemainingWeight,
+            juiceChannel = r.juiceChannel,
+            imageUri = r.imageUri,
+            juiceType = r.juiceType,
+            hasPulp = r.hasPulp,
+            pulpTotalCups = r.pulpTotalCups,
+            pulpDecInterval = r.pulpDecInterval,
+            pulpDecAmount = r.pulpDecAmount,
+            waterSpeed = r.waterSpeed,
+            juiceSpeed = r.juiceSpeed
+        )
+    }
+    suspend fun updateJuiceSpeedDefaultIfZero(speed: Int = 60) {
+        recipeDao.updateJuiceSpeedDefaultIfZero(speed)
+    }
 }

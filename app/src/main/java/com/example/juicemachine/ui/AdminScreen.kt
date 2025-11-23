@@ -2,7 +2,6 @@
 package com.example.juicemachine.ui
 import androidx.compose.material.icons.automirrored.filled.Sort
 
-import android.content.Context
 import android.net.Uri
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -324,7 +323,7 @@ private fun AdsManagerDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("ads_prefs", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences("ads_prefs", android.content.Context.MODE_PRIVATE)
 
     val initial: List<AdItem> = remember {
         val json = prefs.getString("ads_image_uris", null)
@@ -351,15 +350,20 @@ private fun AdsManagerDialog(
     val builtInAds = remember(context) {
         val pkg = context.packageName
         listOf(
-            AdItem(uri = "android.resource://$pkg/${R.drawable.ad_ya_shi_xiang_1}", title = "鸭屎香柠檬茶"),
-            AdItem(uri = "android.resource://$pkg/${R.drawable.ad_liu_cheng_bai_xinag_1}", title = "柳橙百香"),
-            AdItem(uri = "android.resource://$pkg/${R.drawable.ad_mo_li_xue_ya_1}", title = "茉莉雪芽")
+            AdItem(uri = "android.resource://$pkg/drawable/ba_qi_qing_ning_ad", title = "霸气青柠"),
+            AdItem(uri = "android.resource://$pkg/drawable/ba_qi_yang_mei_ad", title = "霸气杨梅"),
+            AdItem(uri = "android.resource://$pkg/drawable/shan_ye_zhi_zi_ad", title = "山野栀子")
         )
     }
     // 可选：从配方名称推导广告图（使用广告资源映射，而不是配方自定义图片）
     val fromRecipes = remember(recipes, context) {
         recipes
-            .map { AdItem(uri = "android.resource://${context.packageName}/${getDrawableForRecipe(it.name)}", title = it.name) }
+            .map {
+                val resId = getDrawableForRecipe(context, it.name)
+                val resName = try { context.resources.getResourceEntryName(resId) } catch (_: Exception) { null }
+                val uri = if (resName != null) "android.resource://${context.packageName}/drawable/$resName" else "android.resource://${context.packageName}/drawable/placeholder"
+                AdItem(uri = uri, title = it.name)
+            }
             .distinctBy { it.uri }
             .take(5)
     }
@@ -675,12 +679,14 @@ private fun AdsManagerDialog(
                                              elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                                          ) {
                                              Box(Modifier.fillMaxSize()) {
-                                                 AsyncImage(
-                                                     model = ImageRequest.Builder(LocalContext.current).data(uri).crossfade(true).build(),
-                                                     contentDescription = null,
-                                                     contentScale = ContentScale.Fit,
-                                                     modifier = Modifier.fillMaxSize()
-                                                 )
+                                                AsyncImage(
+                                                    model = ImageRequest.Builder(LocalContext.current).data(uri).crossfade(true).build(),
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    error = painterResource(id = R.drawable.placeholder),
+                                                    fallback = painterResource(id = R.drawable.placeholder)
+                                                )
                                                  // 左上角序号圆角徽标
                                                  Box(
                                                      modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(color = Color(0x99000000), shape = RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp)
@@ -795,7 +801,9 @@ private fun AdsManagerDialog(
                     model = ImageRequest.Builder(LocalContext.current).data(previewUri).crossfade(true).build(),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    error = painterResource(id = R.drawable.placeholder),
+                    fallback = painterResource(id = R.drawable.placeholder)
                 )
                 IconButton(onClick = { previewUri = null }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
                     Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Color.White)
@@ -816,7 +824,7 @@ private fun AdsManagerDialog(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
+        val defaultPainter = painterResource(id = getBeverageDrawableForRecipe(LocalContext.current, recipe.name))
         if (!recipe.imageUri.isNullOrEmpty()) {
         coil.compose.AsyncImage(
             model = coil.request.ImageRequest.Builder(LocalContext.current)
@@ -847,15 +855,66 @@ private fun AdsManagerDialog(
     }
 }
 
-private fun getDrawableForRecipe(recipeName: String): Int {
-    return when (recipeName) {
-        "茉莉雪芽" -> R.drawable.ad_mo_li_xue_ya_1
-        "柳橙百香" -> R.drawable.ad_liu_cheng_bai_xinag_1
-        "鸭屎香柠檬茶" -> R.drawable.ad_ya_shi_xiang_1
-        // 兼容旧名称
-        "满杯桑葚" -> R.drawable.ad_ya_shi_xiang_1
-        else -> R.drawable.placeholder
+private fun getDrawableForRecipe(context: android.content.Context, recipeName: String): Int {
+    // 广告资源映射（横图）
+    val key = when (recipeName) {
+        // 版本B
+        "霸气青柠" -> "ba_qi_qing_ning_ad"
+        "霸气杨梅" -> "ba_qi_yang_mei_ad"
+        "山野栀子" -> "shan_ye_zhi_zi_ad"
+        // 版本A（兼容）
+        "柳橙百香" -> "liu_cheng_bai_xiang_ad"
+        "茉莉雪芽" -> "mo_li_xue_ya_ad"
+        "鸭屎香柠檬茶" -> "ya_shi_xiang_ad"
+        else -> null
     }
+    if (key != null) {
+        val id = context.resources.getIdentifier(key, "drawable", context.packageName)
+        if (id != 0) return id
+        // 若是B版名称但文件不存在，尝试映射到A版文件名
+        val aliasA = when (recipeName) {
+            "霸气青柠" -> "liu_cheng_bai_xiang_ad"
+            "霸气杨梅" -> "mo_li_xue_ya_ad"
+            "山野栀子" -> "ya_shi_xiang_ad"
+            else -> null
+        }
+        if (aliasA != null) {
+            val aid = context.resources.getIdentifier(aliasA, "drawable", context.packageName)
+            if (aid != 0) return aid
+        }
+    }
+    return R.drawable.placeholder
+}
+
+private fun getBeverageDrawableForRecipe(context: android.content.Context, recipeName: String): Int {
+    // 饮品资源映射（竖图）
+    val key = when (recipeName) {
+        // 版本B
+        "霸气青柠" -> "ba_qi_qing_ning"
+        "霸气杨梅" -> "ba_qi_yang_mei"
+        "山野栀子" -> "shan_ye_zhi_zi"
+        // 版本A（兼容）
+        "柳橙百香" -> "liu_cheng_bai_xiang"
+        "茉莉雪芽" -> "mo_li_xue_ya"
+        "鸭屎香柠檬茶" -> "ya_shi_xiang"
+        else -> null
+    }
+    if (key != null) {
+        val id = context.resources.getIdentifier(key, "drawable", context.packageName)
+        if (id != 0) return id
+        // 若是B版名称但文件不存在，尝试映射到A版文件名
+        val aliasA = when (recipeName) {
+            "霸气青柠" -> "liu_cheng_bai_xiang"
+            "霸气杨梅" -> "mo_li_xue_ya"
+            "山野栀子" -> "ya_shi_xiang"
+            else -> null
+        }
+        if (aliasA != null) {
+            val aid = context.resources.getIdentifier(aliasA, "drawable", context.packageName)
+            if (aid != 0) return aid
+        }
+    }
+    return R.drawable.placeholder
 }
 
 // PreferencesPanel 已删除：该模块与本APP需求无关
