@@ -66,24 +66,24 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
             try {
                 val existing = try { database.recipeDao().getAllRecipes().first() } catch (_: Exception) { emptyList() }
                 if (existing.isEmpty()) {
-                    // 仅在数据库为空时插入默认配方（机器A）
+                    // 仅在数据库为空时插入默认配方（版本B）
                     val defaults = listOf(
                         com.example.juicemachine.data.database.Recipe(
-                            name = "柳橙百香", water = 180, juice = 100, price = 9,
+                            name = "霸气青柠", water = 105, juice = 175, price = 8,
                             defaultRemainingWeight = 1000, currentRemainingWeight = 1000,
-                            juiceChannel = 2, imageUri = null, juiceType = "橙汁百香果汁",
+                            juiceChannel = 1, imageUri = null, juiceType = "青柠特调",
                             waterSpeed = 60, juiceSpeed = 60
                         ),
                         com.example.juicemachine.data.database.Recipe(
-                            name = "茉莉雪芽", water = 105, juice = 175, price = 8,
+                            name = "霸气杨梅", water = 180, juice = 100, price = 9,
                             defaultRemainingWeight = 1000, currentRemainingWeight = 1000,
-                            juiceChannel = 1, imageUri = null, juiceType = "牛奶绿茶",
+                            juiceChannel = 2, imageUri = null, juiceType = "杨梅果饮",
                             waterSpeed = 60, juiceSpeed = 60
                         ),
                         com.example.juicemachine.data.database.Recipe(
-                            name = "鸭屎香柠檬茶", water = 130, juice = 150, price = 10,
+                            name = "山野栀子", water = 130, juice = 150, price = 10,
                             defaultRemainingWeight = 1000, currentRemainingWeight = 1000,
-                            juiceChannel = 3, imageUri = null, juiceType = "柠檬汁鸭屎香",
+                            juiceChannel = 3, imageUri = null, juiceType = "栀子花茶",
                             waterSpeed = 60, juiceSpeed = 60
                         )
                     )
