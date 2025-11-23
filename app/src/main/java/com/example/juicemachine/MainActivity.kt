@@ -33,6 +33,9 @@ import com.example.juicemachine.data.hardware.HardwareManager
 import com.example.juicemachine.util.DebugLogger
 import androidx.core.content.FileProvider
 import android.annotation.SuppressLint
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -90,6 +93,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            // 实机：强制沉浸式全屏
+            try {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            } catch (_: Throwable) {}
         } catch (e: Throwable) {
             // 兜底：若组合初始化异常，渲染一个简易提示界面以避免“无法打开”
             com.example.juicemachine.util.DebugLogger.e("MainActivity", "Compose 初始化失败: ${e.message}", e, showToast = false)
@@ -124,6 +134,17 @@ class MainActivity : ComponentActivity() {
             }
             true
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 进入前台时再次隐藏系统栏，避免偶发显示
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } catch (_: Throwable) {}
     }
 
     private fun checkAndRequestPermissions() {

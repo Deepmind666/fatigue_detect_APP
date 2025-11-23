@@ -189,7 +189,7 @@ fun EditRecipeScreen(
                             )
                         } else {
                             // 显示默认图片（根据配方名称映射到drawable-nodpi的新图片）
-                            val defaultRes = getDrawableForRecipe(recipe.name)
+                            val defaultRes = getDrawableForRecipe(LocalContext.current, recipe.name)
                             androidx.compose.foundation.Image(
                                 painter = painterResource(id = defaultRes),
                                 contentDescription = "默认饮品图片",
@@ -523,15 +523,34 @@ fun EditRecipeScreen(
 }
 
 // 添加获取饮品图片的函数（与DrinkMenuScreen保持一致）
-private fun getDrawableForRecipe(recipeName: String): Int {
-    return when (recipeName) {
-        "茉莉雪芽" -> R.drawable.mo_li_xue_ya3
-        "柳橙百香" -> R.drawable.liu_cheng_bai_xiang3
-        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang3
-        // 兼容旧名称：满杯桑葚 已被鸭屎香柠檬茶替换
-        "满杯桑葚" -> R.drawable.ya_shi_xiang3
-        else -> R.drawable.placeholder
+private fun getDrawableForRecipe(context: android.content.Context, recipeName: String): Int {
+    val key = when (recipeName) {
+        // 版本B
+        "霸气青柠" -> "ba_qi_qing_ning"
+        "霸气杨梅" -> "ba_qi_yang_mei"
+        "山野栀子" -> "shan_ye_zhi_zi"
+        // 版本A（兼容）
+        "柳橙百香" -> "liu_cheng_bai_xiang"
+        "茉莉雪芽" -> "mo_li_xue_ya"
+        "鸭屎香柠檬茶" -> "ya_shi_xiang"
+        else -> null
     }
+    if (key != null) {
+        val id = context.resources.getIdentifier(key, "drawable", context.packageName)
+        if (id != 0) return id
+        // 若是B版名称但文件不存在，尝试映射到A版文件名
+        val aliasA = when (recipeName) {
+            "霸气青柠" -> "liu_cheng_bai_xiang"
+            "霸气杨梅" -> "mo_li_xue_ya"
+            "山野栀子" -> "ya_shi_xiang"
+            else -> null
+        }
+        if (aliasA != null) {
+            val aid = context.resources.getIdentifier(aliasA, "drawable", context.packageName)
+            if (aid != 0) return aid
+        }
+    }
+    return R.drawable.placeholder
 }
 
 

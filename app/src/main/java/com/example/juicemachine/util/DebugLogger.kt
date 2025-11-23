@@ -18,18 +18,32 @@ object DebugLogger {
 
     // 新增：全局Toast开关（默认关闭，避免频繁弹窗干扰）
     @Volatile private var toastEnabled: Boolean = false
+    // 新增：文件日志开关（默认关闭以提升性能）
+    @Volatile private var fileLoggingEnabled: Boolean = false
+    // 提供轻量开关给热点路径判断是否打印详细日志
+    fun isVerboseEnabled(): Boolean = fileLoggingEnabled
     fun setToastEnabled(enabled: Boolean) { toastEnabled = enabled }
+    fun setFileLoggingEnabled(enabled: Boolean) { fileLoggingEnabled = enabled }
 
     fun init(context: Context) {
-        this.context = context
-        // 使用应用专用目录，不需要权限
-        val logDir = File(context.getExternalFilesDir(null), "debug")
-        if (!logDir.exists()) {
-            logDir.mkdirs()
+        // 始终使用 ApplicationContext，避免持有 Activity 导致泄漏
+        this.context = context.applicationContext
+        // 优先使用外部专用目录；若不可用则回落到内部 filesDir（一定存在且无需权限）
+        val baseDir = try { context.getExternalFilesDir(null) } catch (_: Exception) { null }
+        val safeBase = baseDir ?: context.filesDir
+        val logDir = File(safeBase, "debug")
+        try {
+            if (!logDir.exists()) {
+                logDir.mkdirs()
+            }
+            logFile = File(logDir, "debug_logs.txt")
+        } catch (e: Exception) {
+            // 回退：若文件系统异常，放弃文件日志，仅保留 Logcat/Toast
+            android.util.Log.w("DebugLogger", "初始化日志文件失败: ${e.message}", e)
+            logFile = null
         }
-        logFile = File(logDir, "debug_logs.txt")
 
-        // 写入启动标记
+        // 写入启动标记（文件不可用则自动忽略）
         logToFile("============ APP 启动 ============")
         logToFile("时间: ${dateFormat.format(Date())}")
         logToFile("设备: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
@@ -86,12 +100,15 @@ object DebugLogger {
             |堆栈跟踪:
             |${Log.getStackTraceString(throwable)}
             |=================================""".trimMargin()
-        logToFile(crashInfo)
-        // 崩溃信息仍显示给用户
-        showToastInternal("应用崩溃: $message", isLong = true)
+        // 崩溃日志强制写入，即使关闭文件日志
+        forceLogToFile(crashInfo)
+        // 屏显更详细的异常摘要，帮助现场定位
+        val brief = "${throwable.javaClass.simpleName}: ${throwable.message}".take(120)
+        showToastInternal("应用崩溃: $message\n$brief", isLong = true)
     }
 
     private fun logToFile(message: String) {
+        if (!fileLoggingEnabled) return
         val timestamp = dateFormat.format(Date())
         val logEntry = "[$timestamp] $message\n"
 
@@ -101,6 +118,14 @@ object DebugLogger {
             } catch (e: Exception) {
                 Log.e("DebugLogger", "写入日志文件失败", e)
             }
+        }
+    }
+
+    private fun forceLogToFile(message: String) {
+        val timestamp = dateFormat.format(Date())
+        val logEntry = "[$timestamp] $message\n"
+        CoroutineScope(Dispatchers.IO).launch {
+            try { logFile?.appendText(logEntry) } catch (e: Exception) { Log.e("DebugLogger", "写入崩溃日志失败", e) }
         }
     }
 

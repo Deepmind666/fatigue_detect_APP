@@ -41,4 +41,26 @@ interface RecipeDao {
     // 保障：将果汁速度为0的配方统一修正为60（避免初始为0导致不出液）
     @Query("UPDATE recipes SET juiceSpeed = :speed WHERE juiceSpeed = 0")
     suspend fun updateJuiceSpeedDefaultIfZero(speed: Int = 60)
+
+    @Query(
+        "UPDATE recipes SET name=:name, water=:water, juice=:juice, price=:price, defaultRemainingWeight=:defaultRemainingWeight, currentRemainingWeight=:currentRemainingWeight, juiceChannel=:juiceChannel, imageUri=:imageUri, juiceType=:juiceType, hasPulp=:hasPulp, pulpTotalCups=:pulpTotalCups, pulpDecInterval=:pulpDecInterval, pulpDecAmount=:pulpDecAmount, waterSpeed=:waterSpeed, juiceSpeed=:juiceSpeed WHERE id=:id"
+    )
+    suspend fun updateRecipeFields(
+        id: Int,
+        name: String,
+        water: Int,
+        juice: Int,
+        price: Int,
+        defaultRemainingWeight: Int,
+        currentRemainingWeight: Int,
+        juiceChannel: Int,
+        imageUri: String?,
+        juiceType: String,
+        hasPulp: Boolean,
+        pulpTotalCups: Int,
+        pulpDecInterval: Int,
+        pulpDecAmount: Int,
+        waterSpeed: Int,
+        juiceSpeed: Int
+    )
 }

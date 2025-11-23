@@ -4,9 +4,14 @@ import android.util.Log
 import android.os.SystemClock
 import android.app.Activity
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -19,6 +24,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.graphics.RenderEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -33,8 +46,16 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.request.CachePolicy
 import coil.size.Precision
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
+import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.painterResource
+import android.net.Uri
+import androidx.compose.foundation.Image
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -44,6 +65,7 @@ private const val ADS_TAG = "AdsScreen"
 data class AdItem(val uri: String, val title: String? = null)
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun AdsScreen(
     images: List<AdItem>,
     intervalMs: Long = 10_000L,
@@ -52,83 +74,54 @@ fun AdsScreen(
     onFirstImageReady: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    var currentIndex by remember { mutableStateOf(0) }
     var isPaused by remember { mutableStateOf(false) }
     var lastInteraction by remember { mutableStateOf(SystemClock.uptimeMillis()) }
 
     val data = remember(images) { if (images.isNotEmpty()) images else emptyList() }
     val gestureScope = rememberCoroutineScope()
+    val loopPages = remember(data) { if (data.isEmpty()) 1 else (data.size * 1000).coerceAtLeast(1000) }
+    val startPage = remember(data) { if (data.isEmpty()) 0 else ((loopPages / 2) / data.size) * data.size }
+    val pagerState = rememberPagerState(initialPage = startPage, pageCount = { loopPages })
+    val prefetchContext = LocalContext.current
 
-    // 进入广告页 -> 沉浸式全屏；离开时恢复系统栏
-    // 调整：首帧后轻微延迟再隐藏，避免部分设备在冷启动阶段全屏黑
+    // 暂时移除系统栏控制以排除窗口相关崩溃来源（后续再按设备恢复）
     val activity = LocalContext.current as? Activity
-    DisposableEffect(activity) {
-        activity?.let { act ->
-            WindowCompat.setDecorFitsSystemWindows(act.window, false)
-            val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            // 首帧后再隐藏系统栏：具体隐藏动作在下面的 LaunchedEffect 中执行
-        }
-        onDispose {
-            activity?.let { act ->
-                val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-                controller.show(WindowInsetsCompat.Type.systemBars())
-                WindowCompat.setDecorFitsSystemWindows(act.window, true)
-            }
-        }
-    }
-    // 首图就绪后隐藏系统栏（含 500ms 兜底），避免冷启动阶段的窗口切换导致白板/闪烁
-    var barsHiddenOnce by remember { mutableStateOf(false) }
     var firstImageDisplayed by remember { mutableStateOf(false) }
     var notifiedSplash by remember { mutableStateOf(false) }
-    LaunchedEffect(activity, firstImageDisplayed) {
-        val act = activity ?: return@LaunchedEffect
-        if (barsHiddenOnce) return@LaunchedEffect
-        if (!firstImageDisplayed) {
-            // 若首图尚未就绪，等待极短时间后仍隐藏一次，避免长时间不全屏
-            kotlinx.coroutines.delay(500)
-        }
-        val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-        controller.hide(WindowInsetsCompat.Type.systemBars())
-        barsHiddenOnce = true
-    }
 // 删除空行无符号标记
      // 自动轮播：按间隔切换到下一张，循环；按压或拖拽时暂停
-     LaunchedEffect(data, isPaused, intervalMs) {
+     LaunchedEffect(data, intervalMs) {
          if (data.isEmpty()) return@LaunchedEffect
-         while (!isPaused) {
+         while (true) {
              kotlinx.coroutines.delay(intervalMs)
-             if (isPaused) break
-             if (data.size > 1) {
-                 val next = (currentIndex + 1) % data.size
-                 currentIndex = next
-                 Log.d(ADS_TAG, "Auto-advance -> index=$next/${'$'}{data.size}")
+             if (data.size > 1 && !isPaused && !pagerState.isScrollInProgress) {
+               val next = pagerState.currentPage + 1
+               try {
+                   pagerState.animateScrollToPage(
+                       next,
+                       animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy)
+                   )
+               } catch (_: Exception) {}
              }
          }
      }
 
     // 每次索引变化时记录当前展示的图片地址
-    LaunchedEffect(currentIndex, data) {
-        val uri = data.getOrNull(currentIndex)?.uri
-        Log.d(ADS_TAG, "Displaying index=$currentIndex uri=$uri")
+    LaunchedEffect(pagerState.currentPage, data) {
+        val uri = if (data.isEmpty()) null else data[pagerState.currentPage % data.size].uri
+        val logicalIndex = if (data.isEmpty()) 0 else (pagerState.currentPage % data.size)
+        Log.d(ADS_TAG, "Displaying index=${logicalIndex} uri=$uri")
     }
 
-    // 轻微的 Ken Burns 动效
+    // 移除 Ken Burns 动效，避免观感上的“被裁剪”效果
     val scale = remember { Animatable(1.0f) }
-    LaunchedEffect(currentIndex, isPaused, data, intervalMs, firstImageDisplayed) {
+    LaunchedEffect(pagerState.currentPage, isPaused, data, intervalMs, firstImageDisplayed) {
         scale.snapTo(1.0f)
-        // 冷启动优化：首图阶段不启用 Ken Burns 动效，减少首帧绘制开销
-        if (firstImageDisplayed && !isPaused && data.isNotEmpty()) {
-            scale.animateTo(
-                targetValue = 1.03f,
-                animationSpec = tween(durationMillis = (intervalMs * 0.95f).toInt(), easing = LinearEasing)
-            )
-        }
     }
 
     // 自动播放进度（用于底部细进度条）
     val progress = remember { Animatable(0f) }
-    LaunchedEffect(currentIndex, isPaused, data, intervalMs) {
+    LaunchedEffect(pagerState.currentPage, isPaused, data, intervalMs) {
         progress.snapTo(0f)
         if (!isPaused && data.isNotEmpty()) {
             progress.animateTo(
@@ -184,35 +177,7 @@ fun AdsScreen(
                     }
                 )
             }
-            // 左右拖动切换广告
-            .pointerInput(data) {
-                detectDragGestures(
-                    onDragStart = {
-                        isPaused = true
-                    },
-                    onDragEnd = {
-                        isPaused = false
-                    },
-                    onDragCancel = {
-                        isPaused = false
-                    }
-                ) { change, dragAmount ->
-                    val dx = dragAmount.x
-                    if (abs(dx) > 40f && data.size > 1) {
-                        change.consume()
-                        val next = if (dx < 0) (currentIndex + 1) % data.size else (currentIndex - 1 + data.size) % data.size
-                        currentIndex = next
-                        // 防抖：切换一次后暂停极短时间，避免一次滑动触发多次
-                        isPaused = true
-                        lastInteraction = SystemClock.uptimeMillis()
-                        // 延迟一点点再恢复自动播放
-                        gestureScope.launch {
-                            kotlinx.coroutines.delay(300)
-                            isPaused = false
-                        }
-                    }
-                }
-            },
+            ,
         contentAlignment = Alignment.Center
     ) {
         if (data.isEmpty()) {
@@ -224,78 +189,67 @@ fun AdsScreen(
                 textAlign = TextAlign.Center
             )
         } else {
-            Crossfade(targetState = currentIndex, label = "ads-crossfade") { index ->
-                val item = data[index]
+            androidx.compose.runtime.CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    key = { it },
+                    beyondBoundsPageCount = 2,
+                    flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
+                ) { page ->
+                val item = if (data.isEmpty()) AdItem(uri = "") else data[page % data.size]
                 val uri = item.uri
                 val title = item.title?.takeIf { it.isNotBlank() } ?: deriveNameFromUri(uri)
                 Box(Modifier.fillMaxSize()) {
-                    // 使用 Subcompose 版本以在加载失败时提供更友好的兜底
-                    coil.compose.SubcomposeAsyncImage(
+                    // 解析 android.resource URI 为资源ID，作为更稳健的加载源
+                    val ctx = LocalContext.current
+                    val modelData: Any = remember(uri, ctx) {
+                        val u = runCatching { Uri.parse(uri) }.getOrNull()
+                        if (u?.scheme == "android.resource") {
+                            val segments = u.pathSegments
+                            val type = segments.getOrNull(0)
+                            val name = segments.getOrNull(1)
+                            if (type == "drawable" && !name.isNullOrBlank()) {
+                                val resId = ctx.resources.getIdentifier(name, "drawable", ctx.packageName)
+                                if (resId != 0) resId else uri
+                            } else uri
+                        } else uri
+                    }
+                    val id = (modelData as? Int) ?: 0
+                    val resPainter = if (id != 0) painterResource(id) else null
+                    val imageBitmap: ImageBitmap? = remember(id) {
+                        if (id != 0) ImageBitmap.imageResource(ctx.resources, id) else null
+                    }
+
+                    // 取消左右虚化与Canvas裁切，统一使用单图全屏拉伸，避免设备差异
+
+                    // 前景：取消虚化与比例保留，强制全屏拉伸（高度顶格，宽度可拉长）
+                    coil.compose.AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(uri)
+                            .data(modelData)
                             .size(screenWidthPx, screenHeightPx)
                             .precision(Precision.EXACT)
-                            // 冷启动优化：首图禁用crossfade，其后仍保留（不改图片尺寸）
-                            .crossfade(firstImageDisplayed)
-                            .listener(object : ImageRequest.Listener {
-                                override fun onSuccess(request: ImageRequest, result: coil.request.SuccessResult) {
-                                    firstImageDisplayed = true
-                                    if (!notifiedSplash) {
-                                        onFirstImageReady?.invoke()
-                                        notifiedSplash = true
-                                    }
-                                }
-                                override fun onError(request: ImageRequest, result: coil.request.ErrorResult) {
-                                    // 加载失败也通知一次，避免启动页长时间保留
-                                    if (!notifiedSplash) {
-                                        onFirstImageReady?.invoke()
-                                        notifiedSplash = true
-                                    }
-                                }
-                            })
+                            .crossfade(false)
+                            .memoryCachePolicy(CachePolicy.DISABLED)
+                            .diskCachePolicy(CachePolicy.DISABLED)
                             .build(),
                         contentDescription = null,
                         contentScale = ContentScale.FillBounds,
-                        loading = {
-                            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                androidx.compose.material3.CircularProgressIndicator()
+                        placeholder = resPainter,
+                        error = resPainter,
+                        modifier = Modifier.fillMaxSize(),
+                        onSuccess = {
+                            if (!firstImageDisplayed) {
+                                firstImageDisplayed = true
+                                try { onFirstImageReady?.invoke() } catch (_: Exception) {}
                             }
                         },
-                        error = {
-                            // 兜底：显示欢迎文字而非整屏黑
-                            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                androidx.compose.material3.Text(
-                                    text = "欢迎使用智能果汁机",
-                                    color = Color.Black,
-                                    fontSize = 28.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val s = scale.value
-                                scaleX = s
-                                scaleY = s
-                            }
+                        onError = { err ->
+                            Log.e(ADS_TAG, "广告图加载失败: ${err.result.throwable?.message}")
+                        }
                     )
-                    // 顶/底渐变遮罩，提升层次感与文字可读性
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .drawWithContent {
-                                drawContent()
-                                drawRect(
-                                    brush = Brush.verticalGradient(
-                                        0f to Color.Black.copy(alpha = 0.12f),
-                                        0.20f to Color.Transparent,
-                                        0.80f to Color.Transparent,
-                                        1f to Color.Black.copy(alpha = 0.20f)
-                                    )
-                                )
-                            }
-                    )
+                    // 取消顶/底遮罩
+                    // 左右不再使用整屏渐变，改为“边缘虚化填充”，避免白边
                     // 底部标题（移除进度条）
                 }
 
@@ -309,17 +263,33 @@ fun AdsScreen(
                 ) {
                     val displayCount = data.size.coerceAtMost(8)
                     repeat(displayCount) { i ->
-                        val active = i == (currentIndex % displayCount)
+                        val active = i == ((pagerState.currentPage % data.size) % displayCount)
                         Box(
                             Modifier
                                 .height(6.dp)
                                 .width(if (active) 20.dp else 6.dp)
                                 .background(
-                                    color = if (active) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.6f),
+                                    color = if (active) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.5f),
                                     shape = androidx.compose.foundation.shape.RoundedCornerShape(3.dp)
                                 )
                         )
                     }
+                }
+                // 预取相邻页，减少滚动时的加载闪烁
+                LaunchedEffect(page, data) {
+                    val loader = coil.Coil.imageLoader(prefetchContext)
+                    listOf(page + 1, page - 1).forEach { p ->
+                        if (data.isNotEmpty()) {
+                            val u = data[(p % loopPages + loopPages) % loopPages % data.size].uri
+                            loader.enqueue(
+                                ImageRequest.Builder(prefetchContext)
+                                    .data(u)
+                                    .precision(Precision.INEXACT)
+                                    .build()
+                            )
+                        }
+                    }
+                }
                 }
             }
         }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import android.content.Context
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -57,15 +59,39 @@ import com.example.juicemachine.ui.theme.FreshRed
 import com.example.juicemachine.ui.model.IceMode
 // 移除下单页温度/重量图标后，相关导入不再需要
 
-private fun getDrawableForRecipe(recipeName: String): Int {
-    return when (recipeName) {
-        "茉莉雪芽" -> R.drawable.mo_li_xue_ya3
-        "柳橙百香" -> R.drawable.liu_cheng_bai_xiang3
-        "鸭屎香柠檬茶" -> R.drawable.ya_shi_xiang3
-        // 兼容旧名称：满杯桑葚 已被鸭屎香柠檬茶替换
-        "满杯桑葚" -> R.drawable.ya_shi_xiang3
-        else -> R.drawable.placeholder
+private fun resolveDrinkDrawable(context: Context, recipeName: String, index: Int): Int {
+    fun idOf(key: String): Int = context.resources.getIdentifier(key, "drawable", context.packageName)
+    val nameKey = when (recipeName) {
+        "霸气青柠" -> "ba_qi_qing_ning"
+        "霸气杨梅" -> "ba_qi_yang_mei"
+        "山野栀子" -> "shan_ye_zhi_zi"
+        "柳橙百香" -> "liu_cheng_bai_xiang"
+        "茉莉雪芽" -> "mo_li_xue_ya"
+        "鸭屎香柠檬茶" -> "ya_shi_xiang"
+        else -> null
     }
+    if (nameKey != null) {
+        val id = idOf(nameKey)
+        if (id != 0) return id
+        // 若是B版名称但文件不存在，尝试映射到A版文件名
+        val aliasA = when (recipeName) {
+            "霸气青柠" -> "liu_cheng_bai_xiang"
+            "霸气杨梅" -> "mo_li_xue_ya"
+            "山野栀子" -> "ya_shi_xiang"
+            else -> null
+        }
+        if (aliasA != null) {
+            val aid = idOf(aliasA)
+            if (aid != 0) return aid
+        }
+    }
+    val byIndexKey = when (index % 3) {
+        0 -> "liu_cheng_bai_xiang"
+        1 -> "mo_li_xue_ya"
+        else -> "ya_shi_xiang"
+    }
+    val byIndexId = idOf(byIndexKey)
+    return if (byIndexId != 0) byIndexId else R.drawable.placeholder
 }
 
 @Composable
@@ -100,11 +126,20 @@ private fun getDrawableForRecipe(recipeName: String): Int {
         uiState.showWeighWaitingDialog,
         uiState.showWeightChangeDialog,
         uiState.weighResultMessage,
-        uiState.isWaterOnlyActive
+        uiState.isWaterOnlyActive,
+        uiState.adsCountdownPaused,
+        uiState.adsCountdownResumeDeadline
     ) {
         while (true) {
             kotlinx.coroutines.delay(1000)
             val now = SystemClock.uptimeMillis()
+            if (uiState.adsCountdownPaused) {
+                val deadline = uiState.adsCountdownResumeDeadline
+                if (deadline == null || System.currentTimeMillis() < deadline) {
+                    lastInteraction = now
+                    continue
+                }
+            }
             val interacting = (
                 uiState.selectedRecipe != null ||
                 uiState.showLoginDialog ||
@@ -349,9 +384,9 @@ fun DrinkGrid(
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                recipes.forEach { recipe ->
+                recipes.forEachIndexed { idx, recipe ->
                     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                        DrinkCard(recipe = recipe, onRecipeSelected = onRecipeSelected, onResetStock = onResetStock, expandToHeight = true)
+                        DrinkCard(index = idx, recipe = recipe, onRecipeSelected = onRecipeSelected, onResetStock = onResetStock, expandToHeight = true)
                     }
                 }
                 // 若少于3个，使用占位空格保持三等分
@@ -371,8 +406,8 @@ fun DrinkGrid(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(bottom = 12.dp)
         ) {
-            items(recipes, key = { it.id }) { recipe ->
-                DrinkCard(recipe = recipe, onRecipeSelected = onRecipeSelected, onResetStock = onResetStock)
+            itemsIndexed(recipes, key = { _, it -> it.id }) { idx, recipe ->
+                DrinkCard(index = idx, recipe = recipe, onRecipeSelected = onRecipeSelected, onResetStock = onResetStock)
             }
         }
     }
@@ -380,6 +415,7 @@ fun DrinkGrid(
 
 @Composable
 fun DrinkCard(
+    index: Int,
     recipe: Recipe,
     onRecipeSelected: (Recipe) -> Unit,
     onResetStock: (Recipe) -> Unit = {},
@@ -388,7 +424,7 @@ fun DrinkCard(
     val isSoldOut = recipe.currentRemainingWeight < recipe.juice
     val isLowStock = !isSoldOut && (recipe.currentRemainingWeight < recipe.juice * 3)
     // 计算默认占位图与库存比例
-    val defaultPainter = painterResource(id = getDrawableForRecipe(recipe.name))
+    val defaultPainter = painterResource(id = resolveDrinkDrawable(LocalContext.current, recipe.name, index))
     val stockRatio = if (recipe.defaultRemainingWeight <= 0) 0f else
         (recipe.currentRemainingWeight.toFloat() / recipe.defaultRemainingWeight.toFloat()).coerceIn(0f, 1f)
     var showResetDialog by remember { mutableStateOf(false) }

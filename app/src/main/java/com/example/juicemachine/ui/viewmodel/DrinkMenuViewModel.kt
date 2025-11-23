@@ -57,8 +57,9 @@ data class DrinkMenuUiState(
     // 新增：温度与重量上报（用于用户页展示）
     val currentTemperature: Int? = null,
     val currentWeight: Int? = null,
-    // 新增：广告页倒计时重置触发（硬件中性完成帧）
-    val adsResetTick: Int = 0
+    val adsResetTick: Int = 0,
+    val adsCountdownPaused: Boolean = false,
+    val adsCountdownResumeDeadline: Long? = null
 )
 
 class DrinkMenuViewModel(
@@ -77,6 +78,7 @@ class DrinkMenuViewModel(
     val uiState: StateFlow<DrinkMenuUiState> = _uiState.asStateFlow()
 
     private var recipesCollectionJob: Job? = null
+    private var adsPauseJob: Job? = null
 
     init {
         // 延后配方收集：不在冷启动阶段立即打开数据库与流
@@ -150,19 +152,21 @@ class DrinkMenuViewModel(
             // 连接已确认，否则上面已return
             // 入库订单与库存扣减（IO线程），UI更新切回主线程
             val qty = 1
-            val unitPrice = recipe.price
+            // 确保使用数据库中最新保存的配方，避免“保存后发送仍旧”的问题
+            val currentRecipe = recipeRepository.getRecipeById(recipe.id.toLong()) ?: recipe
+            val unitPrice = currentRecipe.price
             val totalAmount = qty * unitPrice
             // 动态果汁量：基于剩余重量 + 果肉补偿策略
             val stateForCalc = _uiState.value
-            val actualJuice = computeDynamicJuiceAmount(recipe, cupSize, stateForCalc)
+            val actualJuice = computeDynamicJuiceAmount(currentRecipe, cupSize, stateForCalc)
             // 水量：热饮强制为0；其他保持原有杯型缩放
             val actualWater = when (iceMode) {
                 IceMode.HOT -> 0
-                else -> when (cupSize) { "大杯" -> (recipe.water * 1.3).toInt(); else -> recipe.water }
+                else -> when (cupSize) { "大杯" -> (currentRecipe.water * 1.3).toInt(); else -> currentRecipe.water }
             }
             val order = Order(
-                recipeId = recipe.id,
-                recipeName = recipe.name,
+                recipeId = currentRecipe.id,
+                recipeName = currentRecipe.name,
                 quantity = qty,
                 unitPrice = unitPrice,
                 totalAmount = totalAmount,
@@ -183,13 +187,20 @@ class DrinkMenuViewModel(
                 var sentOkFlag = true
                 try {
                     // 按后端新协议，直接使用计算后的实际用量（调用端已处理杯型缩放）
-                    val latestBase = _uiState.value.recipes.find { it.id == recipe.id } ?: recipe
+                    val latestBase = recipeRepository.getRecipeById(currentRecipe.id.toLong())
+                        ?: _uiState.value.recipes.find { it.id == currentRecipe.id }
+                        ?: currentRecipe
                     // 制作时水速采用全局设置（waterOnlySpeed），不使用配方内水速
                     val globalWaterSpeed = _uiState.value.waterOnlySpeed
                     val recipeToSend = latestBase.copy(
                         juice = actualJuice,
                         water = actualWater,
                         waterSpeed = globalWaterSpeed
+                    )
+                    DebugLogger.i(
+                        "SendCheck",
+                        "order=${newId} name=${recipeToSend.name} water=${recipeToSend.water}g juice=${recipeToSend.juice}g wSpd=${recipeToSend.waterSpeed} jSpd=${recipeToSend.juiceSpeed} ch=${recipeToSend.juiceChannel}",
+                        showToast = false
                     )
                     sentOkFlag = when (iceMode) {
                         IceMode.HOT -> {
@@ -248,6 +259,9 @@ class DrinkMenuViewModel(
                         _uiState.update { it.copy(errorMessage = "发送下单指令失败，请检查连接") }
                     }
                     return@launch
+                }
+                if (sentOkFlag) {
+                    withContext(Dispatchers.Main) { pauseAdsCountdownForPendingCompletion(30_000) }
                 }
 
                 // 兜底：仅在确认已成功发送硬件指令后，长时间未收到硬件回调时，自动完成以保证统计可用
@@ -390,12 +404,16 @@ class DrinkMenuViewModel(
                 // 启动只出水：文档对齐，开始帧不携带速度；先预设速度再发送开始
                 val speedRaw = _uiState.value.waterOnlySpeed
                 val speed = if (speedRaw <= 0) 60 else speedRaw.coerceIn(1, 255)
-                try { hardwareManager.primeWaterTopSpeed(speed) } catch (e: Exception) {
-                    Log.w("DrinkMenuViewModel", "预设水速失败（忽略，不阻塞只出水）：${e.message}")
-                }
-                val ok = try { hardwareManager.sendWaterOnlyStart() } catch (e: Exception) {
-                    Log.e("DrinkMenuViewModel", "只出水启动异常: ${e.message}", e)
+                // 优先：一体化下发（预设+开始），失败则回退到两步法
+                var ok = try { hardwareManager.sendWaterOnlyStart(speed) } catch (e: Exception) {
+                    Log.e("DrinkMenuViewModel", "只出水启动异常(携速): ${e.message}", e)
                     false
+                }
+                if (!ok) {
+                    try { hardwareManager.primeWaterTopSpeed(speed) } catch (e: Exception) {
+                        Log.w("DrinkMenuViewModel", "预设水速失败（忽略回退）：${e.message}")
+                    }
+                    ok = hardwareManager.sendWaterOnlyStart()
                 }
                 withContext(Dispatchers.Main) {
                     _uiState.update { it.copy(isWaterOnlyActive = ok, errorMessage = if (!ok) "只出水启动失败" else null) }
@@ -642,7 +660,9 @@ class DrinkMenuViewModel(
                 // 获取当前选中的图片URI，并在IO线程执行复制持久化，避免主线程阻塞
                 val pickedUri = _uiState.value.selectedImageUri
                 val persistedUri = pickedUri?.let { persistImageToPrivateStorage(it) }?.toString()
-                val recipeWithImage = recipe.copy(imageUri = persistedUri)
+                // 修复：持久化失败时回退到所选URI；未选择则保留原来的 imageUri
+                val effectiveImageUri = persistedUri ?: pickedUri?.toString() ?: recipe.imageUri
+                val recipeWithImage = recipe.copy(imageUri = effectiveImageUri)
 
                 // 仅当新建或“默认库存”发生变化时，同步 currentRemainingWeight；否则保留编辑页设置的当前库存
                 val existing = _uiState.value.recipes.find { it.id == recipeWithImage.id }
@@ -664,10 +684,17 @@ class DrinkMenuViewModel(
                         val newId = recipeRepository.insertRecipe(adjusted).toInt()
                         adjusted.copy(id = newId)
                     } else {
-                        recipeRepository.updateRecipe(adjusted)
+                        recipeRepository.updateRecipeFields(adjusted)
                         adjusted
                     }
                 }
+
+                // 写入后强校验：再次从数据库读取最新值，确保UI与发送路径都使用落库后的数据
+                val fresh = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    // 保障速度为0的配方统一修正为60（避免设备不出液）
+                    recipeRepository.updateJuiceSpeedDefaultIfZero()
+                    recipeRepository.getRecipeById(saved.id.toLong())
+                } ?: saved
 
                 Log.d(
                     "DrinkMenuViewModel",
@@ -676,9 +703,11 @@ class DrinkMenuViewModel(
 
                 // 若当前选中正是被编辑的配方，刷新 selectedRecipe，避免保存后仍用旧对象下单
                 _uiState.update { state ->
+                    val replaced = state.recipes.map { if (it.id == fresh.id) fresh else it }
                     state.copy(
-                        selectedRecipe = if (state.selectedRecipe?.id == saved.id) saved else state.selectedRecipe,
-                        recipeToEdit = saved,
+                        recipes = replaced,
+                        selectedRecipe = if (state.selectedRecipe?.id == fresh.id) fresh else state.selectedRecipe,
+                        recipeToEdit = fresh,
                         errorMessage = "配方保存成功"
                     )
                 }
@@ -726,9 +755,24 @@ class DrinkMenuViewModel(
             // 修复：使用更稳定的方式获取Context，并在IO线程执行文件复制
             val context = getApplicationContext()
             val outFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val imagesDir = java.io.File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
-                val fileName = "recipe_${System.currentTimeMillis()}.jpg"
-                val target = java.io.File(imagesDir, fileName)
+                // 目录不存在时自动创建；若创建失败则依次回退到 cacheDir / externalFilesDir
+                val baseCandidates = listOf(context.filesDir, context.cacheDir, context.getExternalFilesDir(null))
+                var imagesDir: java.io.File? = null
+                for (base in baseCandidates) {
+                    if (base == null) continue
+                    val dir = java.io.File(base, "images")
+                    if (dir.exists() || dir.mkdirs()) { imagesDir = dir; break }
+                }
+                val imagesDirFinal = imagesDir ?: throw java.io.IOException("无法创建图片目录")
+                // 根据 MIME 类型决定扩展名，避免后续解码异常；默认 jpg
+                val mime = try { context.contentResolver.getType(uri) } catch (_: Exception) { null }
+                val ext = when (mime?.lowercase()) {
+                    "image/png" -> ".png"
+                    "image/webp" -> ".webp"
+                    else -> ".jpg"
+                }
+                val fileName = "recipe_${System.currentTimeMillis()}${ext}"
+                val target = java.io.File(imagesDirFinal, fileName)
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     java.io.FileOutputStream(target).use { output ->
                         input.copyTo(output)
@@ -908,10 +952,9 @@ class DrinkMenuViewModel(
                     }
                     // 重置排除标志，避免影响后续订单
                     excludeCurrentOrderFromStats = false
-                    // 反馈到UI
+                    resumeAdsCountdown()
                     _uiState.update { it.copy(
                         errorMessage = if (success) "制作完成" else "制作失败",
-                        // 制作完成/失败后，同步重置广告页倒计时（无需额外提示）
                         adsResetTick = it.adsResetTick + 1
                     ) }
                 } catch (e: Exception) {
@@ -962,9 +1005,9 @@ class DrinkMenuViewModel(
                     recipeRepository.deleteRecipe(recipe)
                 }
                 val defaultRecipes = listOf(
-                    Recipe(name = "茉莉雪芽", water = 105, juice = 175, price = 8, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 1, imageUri = null, juiceType = "牛奶绿茶", waterSpeed = 60, juiceSpeed = 60),
-                    Recipe(name = "柳橙百香", water = 180, juice = 100, price = 9, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 2, imageUri = null, juiceType = "橙汁百香果汁", waterSpeed = 60, juiceSpeed = 60),
-                    Recipe(name = "鸭屎香柠檬茶", water = 130, juice = 150, price = 10, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 3, imageUri = null, juiceType = "柠檬汁鸭屎香", waterSpeed = 60, juiceSpeed = 60)
+                    Recipe(name = "霸气青柠", water = 105, juice = 175, price = 8, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 1, imageUri = null, juiceType = "青柠特调", waterSpeed = 60, juiceSpeed = 60),
+                    Recipe(name = "霸气杨梅", water = 180, juice = 100, price = 9, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 2, imageUri = null, juiceType = "杨梅果饮", waterSpeed = 60, juiceSpeed = 60),
+                    Recipe(name = "山野栀子", water = 130, juice = 150, price = 10, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 3, imageUri = null, juiceType = "栀子花茶", waterSpeed = 60, juiceSpeed = 60)
                 )
                 defaultRecipes.forEach { recipe -> recipeRepository.insertRecipe(recipe) }
                 _uiState.update { it.copy(errorMessage = "默认配方已恢复") }
@@ -1016,9 +1059,32 @@ class DrinkMenuViewModel(
         }
         hardwareManager.setOnNeutralCompletionListener {
             viewModelScope.launch(Dispatchers.Main) {
+                resumeAdsCountdown()
                 _uiState.update { curr -> curr.copy(adsResetTick = curr.adsResetTick + 1) }
             }
         }
+    }
+
+    private fun pauseAdsCountdownForPendingCompletion(timeoutMs: Long = 30_000) {
+        adsPauseJob?.cancel()
+        val resumeAt = System.currentTimeMillis() + timeoutMs
+        _uiState.update { it.copy(adsCountdownPaused = true, adsCountdownResumeDeadline = resumeAt, adsResetTick = it.adsResetTick + 1) }
+        adsPauseJob = viewModelScope.launch {
+            try {
+                delay(timeoutMs)
+                val state = _uiState.value
+                val deadline = state.adsCountdownResumeDeadline
+                if (state.adsCountdownPaused && deadline != null && System.currentTimeMillis() >= deadline) {
+                    _uiState.update { s -> s.copy(adsCountdownPaused = false, adsCountdownResumeDeadline = null, adsResetTick = s.adsResetTick + 1) }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun resumeAdsCountdown() {
+        adsPauseJob?.cancel()
+        adsPauseJob = null
+        _uiState.update { it.copy(adsCountdownPaused = false, adsCountdownResumeDeadline = null, adsResetTick = it.adsResetTick + 1) }
     }
 }
 

@@ -2,6 +2,7 @@ package com.example.juicemachine.ui
 
 import android.util.Log
 import android.content.Context
+import android.os.Build
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,6 +37,8 @@ import androidx.compose.ui.graphics.Color
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import android.net.Uri
+import android.graphics.BitmapFactory
 
 sealed class Screen(val route: String) {
     object DrinkMenu : Screen("drink_menu")
@@ -50,6 +55,17 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
     val navController = rememberNavController()
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val adsPrefs = remember(context) { context.getSharedPreferences("ads_prefs", android.content.Context.MODE_PRIVATE) }
+    var adsTick by remember { mutableStateOf(0) }
+    DisposableEffect(adsPrefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "ads_image_uris") {
+                adsTick++
+            }
+        }
+        adsPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { adsPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     // 首帧：记录组合进入日志，帮助定位黑屏是否停在启动背景
     LaunchedEffect(Unit) {
@@ -59,8 +75,8 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
     }
 
     // 统一计算广告素材列表（持久化 > 内置 > 配方）供前景/背景复用
-    val images: List<AdItem> = remember(uiState.recipes) {
-        val prefs = context.getSharedPreferences("ads_prefs", android.content.Context.MODE_PRIVATE)
+    val images: List<AdItem> = remember(uiState.recipes, adsTick) {
+        val prefs = adsPrefs
         val json = prefs.getString("ads_image_uris", null)
         val persisted: List<AdItem> = try {
             if (json.isNullOrBlank()) emptyList() else org.json.JSONArray(json).let { arr ->
@@ -80,22 +96,69 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
             }
         } catch (_: Exception) { emptyList() }
 
+        // 过滤不可读的持久化路径，避免外部无权限/无效URI导致首屏加载失败
+        fun isReadableUri(uri: String): Boolean {
+            return try {
+                val u = Uri.parse(uri)
+                when (u.scheme) {
+                    "android.resource" -> {
+                        // 能解码出尺寸才认为有效
+                        context.contentResolver.openInputStream(u)?.use { input ->
+                            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            android.graphics.BitmapFactory.decodeStream(input, null, opts)
+                            opts.outWidth > 0 && opts.outHeight > 0
+                        } ?: false
+                    }
+                    "file" -> java.io.File(u.path ?: "").canRead()
+                    "content" -> {
+                        context.contentResolver.openInputStream(u)?.use { input ->
+                            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeStream(input, null, opts)
+                            opts.outWidth > 0 && opts.outHeight > 0
+                        } ?: false
+                    }
+                    else -> false
+                }
+            } catch (_: Exception) { false }
+        }
+
+        val persistedValid: List<AdItem> = persisted.filter { it.uri.isNotBlank() && isReadableUri(it.uri) }
+        // 若持久化存在但全部不可解码，则清理持久化，避免长期占位且显示兜底文本
+        if (persisted.isNotEmpty() && persistedValid.isEmpty()) {
+            try {
+                prefs.edit().remove("ads_image_uris").apply()
+            } catch (_: Exception) { /* ignore */ }
+        }
+
         val fromRecipes: List<AdItem> = uiState.recipes
-            .map { AdItem(uri = it.imageUri ?: "android.resource://${context.packageName}/${getDrawableForRecipe(it.name)}", title = it.name) }
+            .map {
+                val resId = getDrawableForRecipe(context, it.name)
+                val resName = try { context.resources.getResourceEntryName(resId) } catch (_: Exception) { null }
+                val defaultUri = if (resName != null) {
+                    "android.resource://${context.packageName}/drawable/$resName"
+                } else {
+                    "android.resource://${context.packageName}/drawable/placeholder"
+                }
+                AdItem(uri = it.imageUri ?: defaultUri, title = it.name)
+            }
             .distinctBy { it.uri }
             .take(5)
         val builtIn: List<AdItem> = getBuiltInAds(context)
 
         when {
-            persisted.isNotEmpty() -> persisted
+            persistedValid.isNotEmpty() -> persistedValid
             builtIn.isNotEmpty() -> builtIn
             else -> fromRecipes
         }
     }
 
-    // 立即触发硬件连接初始化（牺牲少量启动时间，确保指令更快可用）
+    // 立即触发硬件连接初始化（真机执行；模拟器跳过，避免无设备环境下的系统服务异常）
     LaunchedEffect(Unit) {
-        viewModel.initializeHardwareAfterFirstFrame()
+        if (!isRunningOnEmulator()) {
+            viewModel.initializeHardwareAfterFirstFrame()
+        } else {
+            android.util.Log.d("AppNavigation", "检测到模拟器环境：跳过硬件连接初始化")
+        }
         // 延后触发：默认配方兜底插入与广告预热（避免冷启动阶段触发Room与图片IO）
         try {
             val app = (context.applicationContext as? com.example.juicemachine.JuiceMachineApplication)
@@ -164,12 +227,15 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
 
     // 背景保持纯白：取消静态广告背景兜底
 
+    // 恢复：统一从广告页启动，确保用户体验一致
+    val startRoute = Screen.Ads.route
+
     // 前景导航栈（保持与原实现一致）
-    NavHost(navController = navController, startDestination = Screen.Ads.route) {
+    NavHost(navController = navController, startDestination = startRoute) {
         composable(Screen.Ads.route) {
             AdsScreen(
                 images = images,
-                intervalMs = 15_000L,
+                intervalMs = 10_000L,
                 onNavigateToUser = { navController.navigate(Screen.DrinkMenu.route) },
                 // 首图加载成功时回调，确保 Splash 已退出
                 onFirstImageReady = onFirstContentReady
@@ -273,35 +339,50 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
     }
 }
 
-// 旧函数保留为未使用（避免重复定义导致冲突）
-private fun getDrawableForRecipe_oldUnused(recipeName: String): Int {
-    return when (recipeName) {
-        "茉莉雪芽" -> com.example.juicemachine.R.drawable.mo_li_xue_ya
-        "柳橙百香" -> com.example.juicemachine.R.drawable.liu_cheng_bai_xiang
-        "满杯桑葚" -> com.example.juicemachine.R.drawable.ad_ya_shi_xiang_1
-        else -> com.example.juicemachine.R.drawable.placeholder
-    }
+private fun isRunningOnEmulator(): Boolean {
+    val fp = Build.FINGERPRINT.lowercase()
+    val model = Build.MODEL.lowercase()
+    val product = Build.PRODUCT.lowercase()
+    val manufacturer = Build.MANUFACTURER.lowercase()
+    val hardware = Build.HARDWARE.lowercase()
+    return (
+        fp.contains("generic") || fp.contains("unknown") ||
+        model.contains("emulator") || model.contains("android sdk built for x86") ||
+        manufacturer.contains("genymotion") ||
+        hardware.contains("goldfish") || hardware.contains("ranchu") ||
+        product.contains("sdk") || product.contains("google_sdk") || product.contains("vbox")
+    )
 }
 
+// 旧函数保留为未使用（避免重复定义导致冲突）
+// 移除旧版未使用映射，改为仅支持当前三种饮品
+
 // 本地帮助函数：根据配方名返回内置图片资源，供广告页默认展示（已更新映射并兼容旧名称）
-private fun getDrawableForRecipe(recipeName: String): Int {
-    return when (recipeName) {
-        "茉莉雪芽" -> com.example.juicemachine.R.drawable.ad_mo_li_xue_ya_1
-        "柳橙百香" -> com.example.juicemachine.R.drawable.ad_liu_cheng_bai_xinag_1
-        "鸭屎香柠檬茶" -> com.example.juicemachine.R.drawable.ad_ya_shi_xiang_1
-        // 兼容旧名称
-        "满杯桑葚" -> com.example.juicemachine.R.drawable.ad_ya_shi_xiang_1
-        else -> com.example.juicemachine.R.drawable.placeholder
+private fun getDrawableForRecipe(context: Context, recipeName: String): Int {
+    val key = when (recipeName) {
+        // 版本B
+        "霸气青柠" -> "ba_qi_qing_ning_ad"
+        "霸气杨梅" -> "ba_qi_yang_mei_ad"
+        "山野栀子" -> "shan_ye_zhi_zi_ad"
+        // 版本A（兼容）
+        "柳橙百香" -> "liu_cheng_bai_xiang_ad"
+        "茉莉雪芽" -> "mo_li_xue_ya_ad"
+        "鸭屎香柠檬茶" -> "ya_shi_xiang_ad"
+        else -> null
     }
+    if (key != null) {
+        val id = context.resources.getIdentifier(key, "drawable", context.packageName)
+        if (id != 0) return id
+    }
+    return com.example.juicemachine.R.drawable.placeholder
 }
 
 private fun getBuiltInAds(context: Context): List<AdItem> {
     val pkg = context.packageName
-    // 强制使用这三张内置默认广告图（2:1）
     return listOf(
-        AdItem(uri = "android.resource://$pkg/${com.example.juicemachine.R.drawable.ad_ya_shi_xiang_1}", title = "鸭屎香柠檬茶"),
-        AdItem(uri = "android.resource://$pkg/${com.example.juicemachine.R.drawable.ad_liu_cheng_bai_xinag_1}", title = "柳橙百香"),
-        AdItem(uri = "android.resource://$pkg/${com.example.juicemachine.R.drawable.ad_mo_li_xue_ya_1}", title = "茉莉雪芽")
+        AdItem(uri = "android.resource://$pkg/drawable/ba_qi_qing_ning_ad", title = "霸气青柠"),
+        AdItem(uri = "android.resource://$pkg/drawable/ba_qi_yang_mei_ad", title = "霸气杨梅"),
+        AdItem(uri = "android.resource://$pkg/drawable/shan_ye_zhi_zi_ad", title = "山野栀子")
     )
 }
 
