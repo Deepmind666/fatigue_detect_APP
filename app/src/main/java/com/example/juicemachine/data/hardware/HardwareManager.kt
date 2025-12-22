@@ -170,20 +170,24 @@ class HardwareManager(
                         onlyP0 -> {
                             val raw = p0
                             val temp = if (raw >= 0x80) raw - 0x100 else raw
-                            Log.d(
-                                "HardwareManager",
-                                "解析到温度上报(0x09): ${temp}°C, frame=" + frame.joinToString(" ") { "%02X".format(it) }
-                            )
-                            CoroutineScope(Dispatchers.Main).launch { onTemperatureReportListener?.invoke(temp) }
+                            if (DebugLogger.isVerboseEnabled()) {
+                                val hex = frame.joinToString(" ") { "%02X".format(it) }
+                                Log.d("HardwareManager", "解析到温度上报(0x09): ${temp}°C, frame=$hex")
+                            } else {
+                                Log.d("HardwareManager", "解析到温度上报(0x09): ${temp}°C")
+                            }
+                            scope.launch(Dispatchers.Main.immediate) { onTemperatureReportListener?.invoke(temp) }
                         }
                         // 重量：FF 09 [hi] [lo] 00 00 FE（按“01 90”版本，高位在前）
                         p0p1 -> {
                             val weight = ((p0 and 0xFF) shl 8) or (p1 and 0xFF)
-                            Log.d(
-                                "HardwareManager",
-                                "解析到重量上报(0x09 BE): ${weight}g, frame=" + frame.joinToString(" ") { "%02X".format(it) }
-                            )
-                            CoroutineScope(Dispatchers.Main).launch { onWeightReportListener?.invoke(weight) }
+                            if (DebugLogger.isVerboseEnabled()) {
+                                val hex = frame.joinToString(" ") { "%02X".format(it) }
+                                Log.d("HardwareManager", "解析到重量上报(0x09 BE): ${weight}g, frame=$hex")
+                            } else {
+                                Log.d("HardwareManager", "解析到重量上报(0x09 BE): ${weight}g")
+                            }
+                            scope.launch(Dispatchers.Main.immediate) { onWeightReportListener?.invoke(weight) }
                         }
                         // 异常：FF 09 00 00 00 00 FE（不含期望重量与等级，按中等级处理）
                         allZero -> {
@@ -195,9 +199,13 @@ class HardwareManager(
                             )
                             Log.w(
                                 "HardwareManager",
-                                "收到异常事件(0x09 all-zero): frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                                if (DebugLogger.isVerboseEnabled()) {
+                                    "收到异常事件(0x09 all-zero): frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                                } else {
+                                    "收到异常事件(0x09 all-zero)"
+                                }
                             )
-                            CoroutineScope(Dispatchers.Main).launch { onWeightAnomalyListener?.invoke(data) }
+                            scope.launch(Dispatchers.Main.immediate) { onWeightAnomalyListener?.invoke(data) }
                         }
                         // 兼容：旧解析（severity + expectedWeight lo/hi）
                         else -> {
@@ -216,9 +224,13 @@ class HardwareManager(
                             )
                             Log.w(
                                 "HardwareManager",
-                                "收到重量异常(兼容0x09): severity=$p0 expected=${expected}g frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                                if (DebugLogger.isVerboseEnabled()) {
+                                    "收到重量异常(兼容0x09): severity=$p0 expected=${expected}g frame=" + frame.joinToString(" ") { "%02X".format(it) }
+                                } else {
+                                    "收到重量异常(兼容0x09): severity=$p0 expected=${expected}g"
+                                }
                             )
-                            CoroutineScope(Dispatchers.Main).launch { onWeightAnomalyListener?.invoke(data) }
+                            scope.launch(Dispatchers.Main.immediate) { onWeightAnomalyListener?.invoke(data) }
                         }
                     }
                 } else if (cmd == 0x01) {
@@ -226,20 +238,24 @@ class HardwareManager(
                     val raw = p0
                     val temp = if (raw >= 0x80) raw - 0x100 else raw
                     val highZerosOk = (p1 == 0 && p2 == 0 && p3 == 0)
-                    Log.d(
-                        "HardwareManager",
-                        "解析到温度上报(0x01): ${temp}°C, highZerosOk=$highZerosOk, frame=" + frame.joinToString(" ") { "%02X".format(it) }
-                    )
-                    CoroutineScope(Dispatchers.Main).launch { onTemperatureReportListener?.invoke(temp) }
+                    if (DebugLogger.isVerboseEnabled()) {
+                        val hex = frame.joinToString(" ") { "%02X".format(it) }
+                        Log.d("HardwareManager", "解析到温度上报(0x01): ${temp}°C, highZerosOk=$highZerosOk, frame=$hex")
+                    } else {
+                        Log.d("HardwareManager", "解析到温度上报(0x01): ${temp}°C, highZerosOk=$highZerosOk")
+                    }
+                    scope.launch(Dispatchers.Main.immediate) { onTemperatureReportListener?.invoke(temp) }
                 } else if (cmd == 0x02) {
                     // 新规：重量上报 CMD=0x02，按“01 90”版本固定为高位在前（BE）：weight=(P0<<8)|P1
                     val weight = ((p0 and 0xFF) shl 8) or (p1 and 0xFF)
                     val highZerosOk = (p2 == 0 && p3 == 0)
-                    Log.d(
-                        "HardwareManager",
-                        "解析到重量上报(0x02): ${weight}g, highZerosOk=$highZerosOk, frame=" + frame.joinToString(" ") { "%02X".format(it) }
-                    )
-                    CoroutineScope(Dispatchers.Main).launch { onWeightReportListener?.invoke(weight) }
+                    if (DebugLogger.isVerboseEnabled()) {
+                        val hex = frame.joinToString(" ") { "%02X".format(it) }
+                        Log.d("HardwareManager", "解析到重量上报(0x02): ${weight}g, highZerosOk=$highZerosOk, frame=$hex")
+                    } else {
+                        Log.d("HardwareManager", "解析到重量上报(0x02): ${weight}g, highZerosOk=$highZerosOk")
+                    }
+                    scope.launch(Dispatchers.Main.immediate) { onWeightReportListener?.invoke(weight) }
                 } else if (cmd == 0x03) {
                     // 11.8 改版：完成帧 FF 03 00 00 00 00 FE（中性完成）
                     val allZero = (p0 == 0 && p1 == 0 && p2 == 0 && p3 == 0)
@@ -248,7 +264,7 @@ class HardwareManager(
                             val hex = frame.joinToString(" ") { "%02X".format(it) }
                             Log.i("HardwareManager", "订单完成(7B all-zero): 完成 frame=$hex")
                             DebugLogger.i("HardwareManager", "订单完成(7B all-zero)", showToast = false)
-                            CoroutineScope(Dispatchers.Main).launch {
+                            scope.launch(Dispatchers.Main.immediate) {
                                 onOrderCompletionListener?.invoke(true)
                                 onNeutralCompletionListener?.invoke()
                             }
@@ -257,12 +273,12 @@ class HardwareManager(
                         p0 == 0xAA -> {
                             Log.i("HardwareManager", "订单完成(7B cmd=0x03): 成功")
                             DebugLogger.i("HardwareManager", "订单完成(7B cmd=0x03)", showToast = false)
-                            CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(true) }
+                            scope.launch(Dispatchers.Main.immediate) { onOrderCompletionListener?.invoke(true) }
                         }
                         p0 == 0xAC -> {
                             Log.w("HardwareManager", "订单完成(7B cmd=0x03): 失败")
                             DebugLogger.w("HardwareManager", "订单失败(7B cmd=0x03)", showToast = false)
-                            CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(false) }
+                            scope.launch(Dispatchers.Main.immediate) { onOrderCompletionListener?.invoke(false) }
                         }
                         else -> {
                             val hex = frame.joinToString(" ") { "%02X".format(it) }
@@ -275,12 +291,12 @@ class HardwareManager(
                         0xAA -> {
                             Log.i("HardwareManager", "订单完成(7B cmd=0x%02X): 成功".format(cmd))
                             DebugLogger.i("HardwareManager", "订单完成(7B cmd=0x%02X)".format(cmd), showToast = false)
-                            CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(true) }
+                            scope.launch(Dispatchers.Main.immediate) { onOrderCompletionListener?.invoke(true) }
                         }
                         0xAC -> {
                             Log.i("HardwareManager", "订单完成(7B cmd=0x%02X): 失败".format(cmd))
                             DebugLogger.w("HardwareManager", "订单失败(7B cmd=0x%02X)".format(cmd), showToast = false)
-                            CoroutineScope(Dispatchers.Main).launch { onOrderCompletionListener?.invoke(false) }
+                            scope.launch(Dispatchers.Main.immediate) { onOrderCompletionListener?.invoke(false) }
                         }
                         else -> {
                             val hex = frame.joinToString(" ") { "%02X".format(it) }

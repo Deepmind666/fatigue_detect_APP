@@ -18,4 +18,13 @@ local.properties
 
 # Keystore files
 *.jks
-*.keystore 
+*.keystore
+
+# Android SDK and Tools (Local)
+.android-sdk/
+.tools/
+.trae/
+*.docx
+*.pdf
+perf_demo.mp4
+ 

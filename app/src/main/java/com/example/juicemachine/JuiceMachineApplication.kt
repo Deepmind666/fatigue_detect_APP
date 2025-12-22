@@ -81,41 +81,41 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
                             waterSpeed = 60, juiceSpeed = 60
                         ),
                         com.example.juicemachine.data.database.Recipe(
-                            name = "山野栀子", water = 130, juice = 150, price = 10,
+                            name = "鸭屎香柠檬茶", water = 130, juice = 150, price = 10,
                             defaultRemainingWeight = 1000, currentRemainingWeight = 1000,
-                            juiceChannel = 3, imageUri = null, juiceType = "栀子花茶",
+                            juiceChannel = 3, imageUri = null, juiceType = "柠檬茶",
                             waterSpeed = 60, juiceSpeed = 60
                         )
                     )
                     database.recipeDao().insertAll(defaults)
                 }
-                // 名称迁移：检测B版名称但A版图片存在且B版图片不存在时，迁移为A版名称（仅改name，其它字段保留）
+                // 名称迁移：检测A版名称但B版图片存在且A版图片不存在时，迁移为B版名称（仅改name，其它字段保留）
                 try {
                     val ctx = this@JuiceMachineApplication
                     val aliasMap = mapOf(
-                        "霸气青柠" to "柳橙百香",
-                        "霸气杨梅" to "茉莉雪芽",
+                        "柳橙百香" to "霸气青柠",
+                        "茉莉雪芽" to "霸气杨梅",
                         "山野栀子" to "鸭屎香柠檬茶"
                     )
                     existing.forEach { r ->
-                        val aName = aliasMap[r.name]
-                        if (aName != null) {
-                            val bKey = when (r.name) {
-                                "霸气青柠" -> "ba_qi_qing_ning"
-                                "霸气杨梅" -> "ba_qi_yang_mei"
-                                else -> "shan_ye_zhi_zi"
-                            }
-                            val aKey = when (aName) {
+                        val bName = aliasMap[r.name]
+                        if (bName != null) {
+                            val aKey = when (r.name) {
                                 "柳橙百香" -> "liu_cheng_bai_xiang"
                                 "茉莉雪芽" -> "mo_li_xue_ya"
                                 else -> "ya_shi_xiang"
                             }
-                            val bid = ctx.resources.getIdentifier(bKey, "drawable", ctx.packageName)
+                            val bKey = when (bName) {
+                                "霸气青柠" -> "ba_qi_qing_ning"
+                                "霸气杨梅" -> "ba_qi_yang_mei"
+                                else -> "ya_shi_xiang"
+                            }
                             val aid = ctx.resources.getIdentifier(aKey, "drawable", ctx.packageName)
-                            if (bid == 0 && aid != 0) {
+                            val bid = ctx.resources.getIdentifier(bKey, "drawable", ctx.packageName)
+                            if (aid == 0 && bid != 0) {
                                 database.recipeDao().updateRecipeFields(
                                     id = r.id,
-                                    name = aName,
+                                    name = bName,
                                     water = r.water,
                                     juice = r.juice,
                                     price = r.price,
@@ -135,6 +135,38 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
                         }
                     }
                 } catch (_: Exception) { /* ignore */ }
+
+                // 名称归一：将现有 "鸭屎香" 统一改为显示名 "鸭屎香柠檬茶"
+                try {
+                    val list = try { database.recipeDao().getAllRecipes().first() } catch (_: Exception) { emptyList() }
+                    list.forEach { r ->
+                        val target = when (r.name) {
+                            "鸭屎香" -> "鸭屎香柠檬茶"
+                            "山野栀子" -> "鸭屎香柠檬茶"
+                            else -> null
+                        }
+                        if (target != null) {
+                            database.recipeDao().updateRecipeFields(
+                                id = r.id,
+                                name = target,
+                                water = r.water,
+                                juice = r.juice,
+                                price = r.price,
+                                defaultRemainingWeight = r.defaultRemainingWeight,
+                                currentRemainingWeight = r.currentRemainingWeight,
+                                juiceChannel = r.juiceChannel,
+                                imageUri = r.imageUri,
+                                juiceType = r.juiceType,
+                                hasPulp = r.hasPulp,
+                                pulpTotalCups = r.pulpTotalCups,
+                                pulpDecInterval = r.pulpDecInterval,
+                                pulpDecAmount = r.pulpDecAmount,
+                                waterSpeed = r.waterSpeed,
+                                juiceSpeed = r.juiceSpeed
+                            )
+                        }
+                    }
+                } catch (_: Exception) { }
                 // 保障：若旧库中存在果汁速度=0的记录，统一修正为60
                 try {
                     database.recipeDao().updateJuiceSpeedDefaultIfZero(60)

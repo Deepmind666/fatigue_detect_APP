@@ -65,6 +65,7 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
         "霸气青柠" -> "ba_qi_qing_ning"
         "霸气杨梅" -> "ba_qi_yang_mei"
         "山野栀子" -> "shan_ye_zhi_zi"
+        "鸭屎香" -> "ya_shi_xiang"
         "柳橙百香" -> "liu_cheng_bai_xiang"
         "茉莉雪芽" -> "mo_li_xue_ya"
         "鸭屎香柠檬茶" -> "ya_shi_xiang"
@@ -73,21 +74,26 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
     if (nameKey != null) {
         val id = idOf(nameKey)
         if (id != 0) return id
-        // 若是B版名称但文件不存在，尝试映射到A版文件名
-        val aliasA = when (recipeName) {
+        // 双向映射：B→A 与 A→B
+        val alias = when (recipeName) {
+            // B 名缺图则回退到 A 文件名
             "霸气青柠" -> "liu_cheng_bai_xiang"
             "霸气杨梅" -> "mo_li_xue_ya"
             "山野栀子" -> "ya_shi_xiang"
+            // A 名缺图则回退到 B 文件名
+            "柳橙百香" -> "ba_qi_qing_ning"
+            "茉莉雪芽" -> "ba_qi_yang_mei"
+            "鸭屎香柠檬茶" -> "shan_ye_zhi_zi"
             else -> null
         }
-        if (aliasA != null) {
-            val aid = idOf(aliasA)
-            if (aid != 0) return aid
+        if (alias != null) {
+            val rid = idOf(alias)
+            if (rid != 0) return rid
         }
     }
     val byIndexKey = when (index % 3) {
-        0 -> "liu_cheng_bai_xiang"
-        1 -> "mo_li_xue_ya"
+        0 -> "ba_qi_qing_ning"
+        1 -> "ba_qi_yang_mei"
         else -> "ya_shi_xiang"
     }
     val byIndexId = idOf(byIndexKey)
@@ -271,6 +277,14 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
             title = { Text("称重结果") },
             text = { Text(msg) },
             confirmButton = { Button(onClick = onDismissWeighResult) { Text("知道了") } }
+        )
+    }
+
+    if (uiState.showWeightChangeDialog) {
+        WeightChangeDialog(
+            onContinue = onContinueRecipe,
+            onRestart = onRestartRecipe,
+            onDismiss = {}
         )
     }
 }
@@ -529,7 +543,7 @@ fun DrinkCard(
                     .padding(8.dp)
             ) {
                 Text(
-                    text = recipe.name,
+                    text = if (recipe.name == "山野栀子") "鸭屎香柠檬茶" else recipe.name,
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     maxLines = 1,
@@ -992,7 +1006,7 @@ fun WeightChangeDialog(
     onDismiss: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {},
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Warning, contentDescription = null, tint = FreshRed)

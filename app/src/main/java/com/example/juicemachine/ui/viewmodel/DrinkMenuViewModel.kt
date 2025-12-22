@@ -59,14 +59,16 @@ data class DrinkMenuUiState(
     val currentWeight: Int? = null,
     val adsResetTick: Int = 0,
     val adsCountdownPaused: Boolean = false,
-    val adsCountdownResumeDeadline: Long? = null
+    val adsCountdownResumeDeadline: Long? = null,
+    val isMaking: Boolean = false
 )
 
 class DrinkMenuViewModel(
     private val recipeRepository: RecipeRepository,
     private val orderRepository: OrderRepository,
     private val hardwareManager: HardwareManager,
-    private val sharedPreferences: android.content.SharedPreferences
+    private val sharedPreferences: android.content.SharedPreferences,
+    private val appContext: android.content.Context
 ) : ViewModel() {
     
     // 标记：是否将当前这次完成回调排除在统计之外（用于“重新制作不算”）
@@ -141,6 +143,10 @@ class DrinkMenuViewModel(
             tryConnect()
             _uiState.update { it.copy(errorMessage = "设备未连接，已尝试重连，请连接后再下单") }
             DebugLogger.w("DrinkMenuViewModel", "未连接：阻止下单，已触发重连", showToast = false)
+            return
+        }
+        if (_uiState.value.isMaking || pendingOrderIds.isNotEmpty()) {
+            _uiState.update { it.copy(errorMessage = "正在制作，请稍候") }
             return
         }
         val modeText = when (iceMode) { IceMode.NORMAL -> "正常冰"; IceMode.NO_ICE -> "去冰"; IceMode.HOT -> "热饮" }
@@ -262,11 +268,12 @@ class DrinkMenuViewModel(
                 }
                 if (sentOkFlag) {
                     withContext(Dispatchers.Main) { pauseAdsCountdownForPendingCompletion(30_000) }
+                    withContext(Dispatchers.Main) { _uiState.update { it.copy(isMaking = true) } }
                 }
 
                 // 兜底：仅在确认已成功发送硬件指令后，长时间未收到硬件回调时，自动完成以保证统计可用
                 if (sentOkFlag) {
-                    viewModelScope.launch {
+                    viewModelScope.launch(Dispatchers.IO) {
                         try {
                             delay(20000)
                             val dbOrder = orderRepository.getOrderById(newId)
@@ -277,6 +284,7 @@ class DrinkMenuViewModel(
                                 StatisticsRefreshNotifier.notifyOrderUpdated()
                                 withContext(Dispatchers.Main) {
                                     pendingOrderIds.remove(newId)
+                                    _uiState.update { it.copy(isMaking = false) }
                                 }
                             }
                         } catch (e: Exception) {
@@ -306,7 +314,7 @@ class DrinkMenuViewModel(
             } catch (e: Exception) {
                 Log.e("DrinkMenuViewModel", "写入订单失败: ${e.message}", e)
                 withContext(Dispatchers.Main) {
-                    _uiState.update { it.copy(errorMessage = "下单入库失败: ${e.message}") }
+                    _uiState.update { it.copy(errorMessage = "下单入库失败: ${e.message}", isMaking = false) }
                 }
             }
         }
@@ -434,16 +442,18 @@ class DrinkMenuViewModel(
             // 使用独立急停指令 CMD=0x09，立即刹停所有设备
             val ok = hardwareManager.sendEmergencyStop()
             withContext(Dispatchers.Main) {
-                _uiState.update { it.copy(isWaterOnlyActive = false, errorMessage = if (ok) "已急停" else "急停失败") }
+                _uiState.update { it.copy(isWaterOnlyActive = false, isMaking = false, errorMessage = if (ok) "已急停" else "急停失败") }
             }
         }
     }
 
     // 新增：手动重连设备入口（后台管理页）
     fun onReconnect() {
-        hardwareManager.connect { status ->
-            Log.d("DrinkMenuViewModel", "手动重连：$status")
-            _uiState.update { it.copy(connectionStatus = status, errorMessage = if (status.contains("未连接") || status.contains("失败")) status else null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            hardwareManager.connect { status ->
+                Log.d("DrinkMenuViewModel", "手动重连：$status")
+                _uiState.update { it.copy(connectionStatus = status, errorMessage = if (status.contains("未连接") || status.contains("失败")) status else null) }
+            }
         }
     }
 
@@ -752,8 +762,7 @@ class DrinkMenuViewModel(
 
     private suspend fun persistImageToPrivateStorage(uri: android.net.Uri): android.net.Uri? {
         return try {
-            // 修复：使用更稳定的方式获取Context，并在IO线程执行文件复制
-            val context = getApplicationContext()
+            val context = appContext
             val outFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 // 目录不存在时自动创建；若创建失败则依次回退到 cacheDir / externalFilesDir
                 val baseCandidates = listOf(context.filesDir, context.cacheDir, context.getExternalFilesDir(null))
@@ -791,24 +800,16 @@ class DrinkMenuViewModel(
         }
     }
 
-    private fun getApplicationContext(): android.content.Context {
-        // 修复：使用更稳定的方式获取Application Context
-        return try {
-            // 简化：直接使用反射获取Application
-            val clazz = Class.forName("android.app.ActivityThread")
-            val method = clazz.getMethod("currentApplication")
-            val app = method.invoke(null) as android.app.Application
-            app.applicationContext
-        } catch (e: Exception) {
-            Log.e("DrinkMenuViewModel", "获取Application Context失败: ${e.message}", e)
-            // 兜底方案，抛出异常让调用方处理
-            throw IllegalStateException("无法获取Application Context: ${e.message}")
-        }
-    }
-
     fun deleteRecipe(recipe: Recipe) {
-        viewModelScope.launch {
-            recipeRepository.deleteRecipe(recipe)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                recipeRepository.deleteRecipe(recipe)
+            } catch (e: Exception) {
+                Log.e("DrinkMenuViewModel", "删除配方失败: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(errorMessage = "删除配方失败: ${e.message}") }
+                }
+            }
         }
     }
 
@@ -955,7 +956,8 @@ class DrinkMenuViewModel(
                     resumeAdsCountdown()
                     _uiState.update { it.copy(
                         errorMessage = if (success) "制作完成" else "制作失败",
-                        adsResetTick = it.adsResetTick + 1
+                        adsResetTick = it.adsResetTick + 1,
+                        isMaking = false
                     ) }
                 } catch (e: Exception) {
                     Log.e("DrinkMenuViewModel", "更新订单状态失败: ${e.message}", e)
@@ -998,7 +1000,7 @@ class DrinkMenuViewModel(
 
     // 恢复默认配方
     fun restoreDefaultRecipes() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val existingRecipes = recipeRepository.allRecipes.first()
                 existingRecipes.forEach { recipe ->
@@ -1010,10 +1012,14 @@ class DrinkMenuViewModel(
                     Recipe(name = "山野栀子", water = 130, juice = 150, price = 10, defaultRemainingWeight = 1000, currentRemainingWeight = 1000, juiceChannel = 3, imageUri = null, juiceType = "栀子花茶", waterSpeed = 60, juiceSpeed = 60)
                 )
                 defaultRecipes.forEach { recipe -> recipeRepository.insertRecipe(recipe) }
-                _uiState.update { it.copy(errorMessage = "默认配方已恢复") }
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(errorMessage = "默认配方已恢复") }
+                }
             } catch (e: Exception) {
                 Log.e("DrinkMenuViewModel", "恢复默认配方失败: ${e.message}", e)
-                _uiState.update { it.copy(errorMessage = "恢复默认配方失败: ${e.message}") }
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(errorMessage = "恢复默认配方失败: ${e.message}") }
+                }
             }
         }
     }
@@ -1092,12 +1098,13 @@ class DrinkMenuViewModelFactory(
     private val repository: RecipeRepository,
     private val hardwareManager: HardwareManager,
     private val orderRepository: OrderRepository,
-    private val sharedPreferences: android.content.SharedPreferences
+    private val sharedPreferences: android.content.SharedPreferences,
+    private val appContext: android.content.Context
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(DrinkMenuViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return DrinkMenuViewModel(repository, orderRepository, hardwareManager, sharedPreferences) as T
+            return DrinkMenuViewModel(repository, orderRepository, hardwareManager, sharedPreferences, appContext) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

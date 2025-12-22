@@ -529,6 +529,7 @@ private fun getDrawableForRecipe(context: android.content.Context, recipeName: S
         "霸气青柠" -> "ba_qi_qing_ning"
         "霸气杨梅" -> "ba_qi_yang_mei"
         "山野栀子" -> "shan_ye_zhi_zi"
+        "鸭屎香" -> "ya_shi_xiang"
         // 版本A（兼容）
         "柳橙百香" -> "liu_cheng_bai_xiang"
         "茉莉雪芽" -> "mo_li_xue_ya"
@@ -538,16 +539,21 @@ private fun getDrawableForRecipe(context: android.content.Context, recipeName: S
     if (key != null) {
         val id = context.resources.getIdentifier(key, "drawable", context.packageName)
         if (id != 0) return id
-        // 若是B版名称但文件不存在，尝试映射到A版文件名
-        val aliasA = when (recipeName) {
+        // 双向映射：B→A 与 A→B
+        val alias = when (recipeName) {
+            // B 名缺图回退到 A
             "霸气青柠" -> "liu_cheng_bai_xiang"
             "霸气杨梅" -> "mo_li_xue_ya"
             "山野栀子" -> "ya_shi_xiang"
+            // A 名缺图回退到 B
+            "柳橙百香" -> "ba_qi_qing_ning"
+            "茉莉雪芽" -> "ba_qi_yang_mei"
+            "鸭屎香柠檬茶" -> "shan_ye_zhi_zi"
             else -> null
         }
-        if (aliasA != null) {
-            val aid = context.resources.getIdentifier(aliasA, "drawable", context.packageName)
-            if (aid != 0) return aid
+        if (alias != null) {
+            val rid = context.resources.getIdentifier(alias, "drawable", context.packageName)
+            if (rid != 0) return rid
         }
     }
     return R.drawable.placeholder
