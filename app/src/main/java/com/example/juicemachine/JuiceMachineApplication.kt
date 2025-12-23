@@ -2,7 +2,6 @@ package com.example.juicemachine
 
 import android.app.Application
 import android.content.Context
-import coil.Coil
 import coil.annotation.ExperimentalCoilApi
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -10,6 +9,7 @@ import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import android.net.Uri
 import android.graphics.BitmapFactory
+import coil.Coil
 import com.example.juicemachine.data.database.AppDatabase
 import com.example.juicemachine.data.hardware.HardwareManager
 import com.example.juicemachine.data.repository.RecipeRepository
@@ -50,12 +50,6 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
             // 继续交给系统默认处理，避免未知状态持续运行
             try { originalHandler?.uncaughtException(thread, throwable) } catch (_: Exception) {}
         }
-        // 清理图片缓存，避免设备残留导致广告页显示差异
-        try {
-            val loader = Coil.imageLoader(this)
-            loader.memoryCache?.clear()
-            loader.diskCache?.clear()
-        } catch (_: Exception) {}
     }
 
     /**
@@ -203,7 +197,7 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
                 val builtIn = listOf(
                     "android.resource://$pkg/drawable/ba_qi_qing_ning_ad",
                     "android.resource://$pkg/drawable/ba_qi_yang_mei_ad",
-                    "android.resource://$pkg/drawable/shan_ye_zhi_zi_ad"
+                    "android.resource://$pkg/drawable/ya_shi_xiang_ad"
                 )
 
                 fun isReadableUri(uri: String): Boolean {
@@ -242,11 +236,17 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
                 }
 
                 val targets = persisted.filter { it.isNotBlank() && isReadableUri(it) }.ifEmpty { builtIn }
-                val loader = newImageLoader()
+                val loader = Coil.imageLoader(this@JuiceMachineApplication)
+                val dm = resources.displayMetrics
+                val w = dm.widthPixels.coerceAtLeast(1)
+                val h = dm.heightPixels.coerceAtLeast(1)
                 targets.forEach { uri ->
                     loader.enqueue(
                         ImageRequest.Builder(this@JuiceMachineApplication)
                             .data(uri)
+                            .size(w, h)
+                            .precision(coil.size.Precision.INEXACT)
+                            .crossfade(false)
                             .build()
                     )
                 }
@@ -254,6 +254,15 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
             } catch (e: Exception) {
                 DebugLogger.w("App", "预热首屏广告图失败: ${e.message}", showToast = false)
             }
+        }
+    }
+
+    fun prewarmCoreDependenciesAsync(): kotlinx.coroutines.Job {
+        return applicationScope.launch(Dispatchers.IO) {
+            try { database } catch (_: Exception) {}
+            try { repository } catch (_: Exception) {}
+            try { orderRepository } catch (_: Exception) {}
+            try { hardwareManager } catch (_: Exception) {}
         }
     }
 
@@ -274,7 +283,7 @@ class JuiceMachineApplication : Application(), ImageLoaderFactory {
                     .build()
             }
             .respectCacheHeaders(false)
-            .allowHardware(false) // 禁用硬件位图以避免某些设备上的崩溃
+            .allowHardware(true)
             .build()
     }
 }

@@ -28,20 +28,8 @@ object DebugLogger {
     fun init(context: Context) {
         // 始终使用 ApplicationContext，避免持有 Activity 导致泄漏
         this.context = context.applicationContext
-        // 优先使用外部专用目录；若不可用则回落到内部 filesDir（一定存在且无需权限）
-        val baseDir = try { context.getExternalFilesDir(null) } catch (_: Exception) { null }
-        val safeBase = baseDir ?: context.filesDir
-        val logDir = File(safeBase, "debug")
-        try {
-            if (!logDir.exists()) {
-                logDir.mkdirs()
-            }
-            logFile = File(logDir, "debug_logs.txt")
-        } catch (e: Exception) {
-            // 回退：若文件系统异常，放弃文件日志，仅保留 Logcat/Toast
-            android.util.Log.w("DebugLogger", "初始化日志文件失败: ${e.message}", e)
-            logFile = null
-        }
+        // 冷启动避免触发外部存储挂载与目录创建：仅计算路径，不做任何磁盘 I/O
+        logFile = File(File(context.filesDir, "debug"), "debug_logs.txt")
 
         // 写入启动标记（文件不可用则自动忽略）
         logToFile("============ APP 启动 ============")
@@ -114,7 +102,11 @@ object DebugLogger {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                logFile?.appendText(logEntry)
+                val f = logFile
+                if (f != null) {
+                    try { f.parentFile?.mkdirs() } catch (_: Exception) {}
+                    f.appendText(logEntry)
+                }
             } catch (e: Exception) {
                 Log.e("DebugLogger", "写入日志文件失败", e)
             }
@@ -125,7 +117,15 @@ object DebugLogger {
         val timestamp = dateFormat.format(Date())
         val logEntry = "[$timestamp] $message\n"
         CoroutineScope(Dispatchers.IO).launch {
-            try { logFile?.appendText(logEntry) } catch (e: Exception) { Log.e("DebugLogger", "写入崩溃日志失败", e) }
+            try {
+                val f = logFile
+                if (f != null) {
+                    try { f.parentFile?.mkdirs() } catch (_: Exception) {}
+                    f.appendText(logEntry)
+                }
+            } catch (e: Exception) {
+                Log.e("DebugLogger", "写入崩溃日志失败", e)
+            }
         }
     }
 

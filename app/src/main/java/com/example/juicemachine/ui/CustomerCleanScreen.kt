@@ -35,17 +35,18 @@ fun CustomerCleanScreen(
     var isCleaningActive by remember { mutableStateOf(false) }
 
     // 新增：全局交互监听与超时
-    var lastInteraction by remember { mutableStateOf(SystemClock.uptimeMillis()) }
+    val lastInteractionRef = remember { LongArray(1) { SystemClock.uptimeMillis() } }
+    val markInteraction: () -> Unit = { lastInteractionRef[0] = SystemClock.uptimeMillis() }
     LaunchedEffect(timeoutMs, isCleaningActive) {
         while (true) {
             delay(1000)
             val now = SystemClock.uptimeMillis()
             // 清洗期间暂停屏保：持续重置交互时间
             if (isCleaningActive) {
-                lastInteraction = now
+                lastInteractionRef[0] = now
                 continue
             }
-            if (now - lastInteraction >= timeoutMs) {
+            if (now - lastInteractionRef[0] >= timeoutMs) {
                 onTimeoutToAds()
                 break
             }
@@ -77,12 +78,12 @@ fun CustomerCleanScreen(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = {
-                            lastInteraction = SystemClock.uptimeMillis()
-                            try { tryAwaitRelease() } finally { lastInteraction = SystemClock.uptimeMillis() }
+                            markInteraction()
+                            try { tryAwaitRelease() } finally { markInteraction() }
                         },
-                        onTap = { lastInteraction = SystemClock.uptimeMillis() },
-                        onLongPress = { lastInteraction = SystemClock.uptimeMillis() },
-                        onDoubleTap = { lastInteraction = SystemClock.uptimeMillis() }
+                        onTap = { markInteraction() },
+                        onLongPress = { markInteraction() },
+                        onDoubleTap = { markInteraction() }
                     )
                 }
         ) {
@@ -165,7 +166,7 @@ fun CustomerCleanScreen(
                     showConfirmStop = false
                     // 点击停止 -> 恢复屏保计时（从当前时刻重新开始15秒）
                     isCleaningActive = false
-                    lastInteraction = SystemClock.uptimeMillis()
+                    markInteraction()
                     onStop()
                 }) { Text("确定") }
             },

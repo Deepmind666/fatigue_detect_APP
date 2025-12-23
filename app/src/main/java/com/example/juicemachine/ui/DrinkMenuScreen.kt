@@ -124,7 +124,8 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
     val snackbarHostState = remember { SnackbarHostState() }
 
     // 新增：全局交互监听与超时
-    var lastInteraction by remember { mutableStateOf(SystemClock.uptimeMillis()) }
+    val lastInteractionRef = remember { LongArray(1) { SystemClock.uptimeMillis() } }
+    val markInteraction: () -> Unit = { lastInteractionRef[0] = SystemClock.uptimeMillis() }
     LaunchedEffect(
         timeoutMs,
         uiState.selectedRecipe,
@@ -142,7 +143,7 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
             if (uiState.adsCountdownPaused) {
                 val deadline = uiState.adsCountdownResumeDeadline
                 if (deadline == null || System.currentTimeMillis() < deadline) {
-                    lastInteraction = now
+                    lastInteractionRef[0] = now
                     continue
                 }
             }
@@ -157,10 +158,10 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
             )
             if (interacting) {
                 // 弹窗或对话框可见时认为用户仍在交互，持续重置计时
-                lastInteraction = now
+                lastInteractionRef[0] = now
                 continue
             }
-            if (now - lastInteraction >= timeoutMs) {
+            if (now - lastInteractionRef[0] >= timeoutMs) {
                 onTimeoutToAds()
                 break
             }
@@ -170,14 +171,14 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
     // 新增：停止只出水后，重置一次广告页倒计时
     LaunchedEffect(uiState.isWaterOnlyActive) {
         if (!uiState.isWaterOnlyActive) {
-            lastInteraction = SystemClock.uptimeMillis()
+            lastInteractionRef[0] = SystemClock.uptimeMillis()
         }
     }
 
     // 新增：硬件中性完成事件触发的广告页倒计时重置
     LaunchedEffect(uiState.adsResetTick) {
         // 每次计数变化都重置最近交互时间
-        lastInteraction = SystemClock.uptimeMillis()
+        lastInteractionRef[0] = SystemClock.uptimeMillis()
     }
 
     Box(
@@ -187,12 +188,12 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
-                        lastInteraction = SystemClock.uptimeMillis()
-                        try { tryAwaitRelease() } finally { lastInteraction = SystemClock.uptimeMillis() }
+                        markInteraction()
+                        try { tryAwaitRelease() } finally { markInteraction() }
                     },
-                    onTap = { lastInteraction = SystemClock.uptimeMillis() },
-                    onLongPress = { lastInteraction = SystemClock.uptimeMillis() },
-                    onDoubleTap = { lastInteraction = SystemClock.uptimeMillis() }
+                    onTap = { markInteraction() },
+                    onLongPress = { markInteraction() },
+                    onDoubleTap = { markInteraction() }
                 )
             }
     ) {
@@ -233,7 +234,7 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
             recipe = selected,
             onConfirm = { cup, mode -> onConfirmDialog(selected, cup, mode) },
             onDismiss = onDismissDialog,
-            onAnyInteraction = { lastInteraction = SystemClock.uptimeMillis() }
+            onAnyInteraction = { markInteraction() }
         )
     }
 
@@ -254,12 +255,12 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
                 modifier = Modifier.pointerInput(Unit) {
                     detectTapGestures(
                         onPress = {
-                            lastInteraction = SystemClock.uptimeMillis()
-                            try { tryAwaitRelease() } finally { lastInteraction = SystemClock.uptimeMillis() }
+                            markInteraction()
+                            try { tryAwaitRelease() } finally { markInteraction() }
                         },
-                        onTap = { lastInteraction = SystemClock.uptimeMillis() },
-                        onLongPress = { lastInteraction = SystemClock.uptimeMillis() },
-                        onDoubleTap = { lastInteraction = SystemClock.uptimeMillis() }
+                        onTap = { markInteraction() },
+                        onLongPress = { markInteraction() },
+                        onDoubleTap = { markInteraction() }
                     )
                 }
             ) {
@@ -283,8 +284,7 @@ private fun resolveDrinkDrawable(context: Context, recipeName: String, index: In
     if (uiState.showWeightChangeDialog) {
         WeightChangeDialog(
             onContinue = onContinueRecipe,
-            onRestart = onRestartRecipe,
-            onDismiss = {}
+            onRestart = onRestartRecipe
         )
     }
 }
@@ -438,9 +438,9 @@ fun DrinkCard(
     val isSoldOut = recipe.currentRemainingWeight < recipe.juice
     val isLowStock = !isSoldOut && (recipe.currentRemainingWeight < recipe.juice * 3)
     // 计算默认占位图与库存比例
-    val defaultPainter = painterResource(id = resolveDrinkDrawable(LocalContext.current, recipe.name, index))
-    val stockRatio = if (recipe.defaultRemainingWeight <= 0) 0f else
-        (recipe.currentRemainingWeight.toFloat() / recipe.defaultRemainingWeight.toFloat()).coerceIn(0f, 1f)
+    val context = LocalContext.current
+    val defaultDrawableId = remember(context, recipe.name, index) { resolveDrinkDrawable(context, recipe.name, index) }
+    val defaultPainter = painterResource(id = defaultDrawableId)
     var showResetDialog by remember { mutableStateOf(false) }
 
     Card(
@@ -462,9 +462,9 @@ fun DrinkCard(
             // 背景图：优先显示本地保存图片
             if (!recipe.imageUri.isNullOrEmpty()) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
+                    model = ImageRequest.Builder(context)
                         .data(recipe.imageUri)
-                        .crossfade(true)
+                        .crossfade(false)
                         .build(),
                     contentDescription = recipe.name,
                     modifier = Modifier.fillMaxSize(),
@@ -1002,8 +1002,7 @@ fun DrinkMenuScreenPreview() {
 @Composable
 fun WeightChangeDialog(
     onContinue: () -> Unit,
-    onRestart: () -> Unit,
-    onDismiss: () -> Unit
+    onRestart: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = {},

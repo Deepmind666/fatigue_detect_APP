@@ -1,12 +1,14 @@
 package com.example.juicemachine.ui
 
+import android.app.Activity
 import android.util.Log
-import android.os.SystemClock
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -21,16 +23,20 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.ui.res.painterResource
 import android.net.Uri
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import com.example.juicemachine.R
 import java.lang.Math.floorMod
 
 private const val ADS_TAG = "AdsScreen"
@@ -42,14 +48,14 @@ data class AdItem(val uri: String, val title: String? = null)
 @OptIn(ExperimentalFoundationApi::class)
 fun AdsScreen(
     images: List<AdItem>,
-    intervalMs: Long = 10_000L,
+    pageHoldMs: Long = 10_000L,
+    scrollDurationMs: Int = 4_000,
     onNavigateToUser: () -> Unit,
     // 首图加载成功时触发，用于释放启动页
     onFirstImageReady: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    var isPaused by remember { mutableStateOf(false) }
-    var lastInteraction by remember { mutableStateOf(SystemClock.uptimeMillis()) }
+    val isPausedRef = remember { BooleanArray(1) }
 
     val data = remember(images) { if (images.isNotEmpty()) images else emptyList() }
     val loopPages = remember(data) { if (data.isEmpty()) 1 else (data.size * 1000).coerceAtLeast(1000) }
@@ -59,18 +65,22 @@ fun AdsScreen(
 
     var firstImageDisplayed by remember { mutableStateOf(false) }
 // 删除空行无符号标记
-     // 自动轮播：按间隔切换到下一张，循环；按压或拖拽时暂停
-     LaunchedEffect(data, intervalMs) {
+     // 自动轮播：每页停留一段时间后，丝滑滚动到下一张；按压或拖拽时暂停
+     LaunchedEffect(data, loopPages, pageHoldMs, scrollDurationMs) {
          if (data.isEmpty()) return@LaunchedEffect
          while (true) {
-             kotlinx.coroutines.delay(intervalMs)
-             if (data.size > 1 && !isPaused && !pagerState.isScrollInProgress) {
-               val next = pagerState.currentPage + 1
+             kotlinx.coroutines.delay(pageHoldMs)
+             if (data.size > 1 && !isPausedRef[0] && !pagerState.isScrollInProgress) {
+               val next = floorMod(pagerState.currentPage + 1, loopPages)
                try {
                    pagerState.animateScrollToPage(
                        next,
-                       animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy)
+                       animationSpec = tween(
+                           durationMillis = scrollDurationMs.coerceAtLeast(0),
+                           easing = LinearEasing
+                       )
                    )
+                   pagerState.scrollToPage(next)
                } catch (_: Exception) {}
              }
          }
@@ -88,9 +98,27 @@ fun AdsScreen(
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.roundToPx() }
 
-    LaunchedEffect(pagerState.currentPage, data, screenWidthPx, screenHeightPx) {
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val activity = view.context as? Activity
+        val window = activity?.window
+        val controller = if (window != null) WindowInsetsControllerCompat(window, view) else null
+        if (window != null && controller != null) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        }
+        onDispose {
+            if (window != null && controller != null) {
+                controller.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage, data, screenWidthPx, screenHeightPx, firstImageDisplayed) {
         if (data.isEmpty()) return@LaunchedEffect
         if (data.size <= 1) return@LaunchedEffect
+        if (!firstImageDisplayed) return@LaunchedEffect
         val loader = coil.Coil.imageLoader(prefetchContext)
         val current = pagerState.currentPage
         listOf(current + 1, current - 1).forEach { p ->
@@ -105,18 +133,6 @@ fun AdsScreen(
         }
     }
 
-    fun deriveNameFromUri(uri: String): String {
-        return try {
-            val u = android.net.Uri.parse(uri)
-            when (u.scheme) {
-                "android.resource" -> u.lastPathSegment ?: uri
-                else -> (u.path?.substringAfterLast('/') ?: uri)
-            }
-        } catch (_: Exception) {
-            uri
-        }
-    }
-
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -126,18 +142,15 @@ fun AdsScreen(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
-                        isPaused = true
-                        lastInteraction = SystemClock.uptimeMillis()
+                        isPausedRef[0] = true
                         try {
                             tryAwaitRelease()
                         } finally {
-                            isPaused = false
-                            lastInteraction = SystemClock.uptimeMillis()
+                            isPausedRef[0] = false
                         }
                     },
                     onTap = {
-                        lastInteraction = SystemClock.uptimeMillis()
-                        Log.d(ADS_TAG, "onTap: navigate to user at $lastInteraction")
+                        Log.d(ADS_TAG, "onTap: navigate to user")
                         onNavigateToUser()
                     }
                 )
@@ -160,11 +173,13 @@ fun AdsScreen(
                     modifier = Modifier.fillMaxSize(),
                     key = { it },
                     beyondBoundsPageCount = 2,
+                    pageSize = PageSize.Fill,
+                    pageSpacing = 0.dp,
+                    contentPadding = PaddingValues(0.dp),
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { page ->
                 val item = if (data.isEmpty()) AdItem(uri = "") else data[page % data.size]
                 val uri = item.uri
-                val title = item.title?.takeIf { it.isNotBlank() } ?: deriveNameFromUri(uri)
                 Box(Modifier.fillMaxSize()) {
                     // 解析 android.resource URI 为资源ID，作为更稳健的加载源
                     val ctx = LocalContext.current
@@ -182,32 +197,79 @@ fun AdsScreen(
                     }
                     val id = (modelData as? Int) ?: 0
                     val resPainter = if (id != 0) painterResource(id) else null
+                    val fallbackPainter = painterResource(id = R.drawable.placeholder)
+                    val placeholderPainter = resPainter ?: fallbackPainter
+
+                    val contentScaleState = remember(uri, screenWidthPx, screenHeightPx) { mutableStateOf(ContentScale.FillBounds) }
+                    val contentScale = contentScaleState.value
 
                     // 取消左右虚化与Canvas裁切，统一使用单图全屏拉伸，避免设备差异
 
                     // 前景：取消虚化与比例保留，强制全屏拉伸（高度顶格，宽度可拉长）
-                    coil.compose.AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(modelData)
-                            .size(screenWidthPx, screenHeightPx)
-                            .precision(Precision.INEXACT)
-                            .crossfade(false)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        placeholder = resPainter,
-                        error = resPainter,
-                        modifier = Modifier.fillMaxSize(),
-                        onSuccess = {
+                    if (id != 0 && resPainter != null) {
+                        LaunchedEffect(id, uri, screenWidthPx, screenHeightPx) {
+                            runCatching {
+                                val s = resPainter.intrinsicSize
+                                val iw = s.width
+                                val ih = s.height
+                                if (iw > 0f && ih > 0f && screenWidthPx > 0 && screenHeightPx > 0) {
+                                    val imageRatio = iw / ih
+                                    val screenRatio = screenWidthPx.toFloat() / screenHeightPx.toFloat()
+                                    val diff = kotlin.math.abs(imageRatio - screenRatio)
+                                    contentScaleState.value = if (diff <= 0.01f) ContentScale.Fit else ContentScale.FillBounds
+                                } else {
+                                    contentScaleState.value = ContentScale.FillBounds
+                                }
+                            }
                             if (!firstImageDisplayed) {
                                 firstImageDisplayed = true
-                                try { onFirstImageReady?.invoke() } catch (_: Exception) {}
+                                runCatching { onFirstImageReady?.invoke() }
                             }
-                        },
-                        onError = { err ->
-                            Log.e(ADS_TAG, "广告图加载失败: ${err.result.throwable?.message}")
                         }
-                    )
+                        Image(
+                            painter = resPainter,
+                            contentDescription = null,
+                            contentScale = contentScale,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        coil.compose.AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(modelData)
+                                .size(screenWidthPx, screenHeightPx)
+                                .precision(Precision.INEXACT)
+                                .crossfade(false)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = contentScale,
+                            placeholder = placeholderPainter,
+                            error = placeholderPainter,
+                            fallback = placeholderPainter,
+                            modifier = Modifier.fillMaxSize(),
+                            onSuccess = {
+                                runCatching {
+                                    val drawable = it.result.drawable
+                                    val iw = drawable.intrinsicWidth
+                                    val ih = drawable.intrinsicHeight
+                                    if (iw > 0 && ih > 0 && screenWidthPx > 0 && screenHeightPx > 0) {
+                                        val imageRatio = iw.toFloat() / ih.toFloat()
+                                        val screenRatio = screenWidthPx.toFloat() / screenHeightPx.toFloat()
+                                        val diff = kotlin.math.abs(imageRatio - screenRatio)
+                                        contentScaleState.value = if (diff <= 0.01f) ContentScale.Fit else ContentScale.FillBounds
+                                    } else {
+                                        contentScaleState.value = ContentScale.FillBounds
+                                    }
+                                }
+                                if (!firstImageDisplayed) {
+                                    firstImageDisplayed = true
+                                    runCatching { onFirstImageReady?.invoke() }
+                                }
+                            },
+                            onError = { err ->
+                                Log.e(ADS_TAG, "广告图加载失败: ${err.result.throwable.message}")
+                            }
+                        )
+                    }
                     // 取消顶/底遮罩
                     // 左右不再使用整屏渐变，改为“边缘虚化填充”，避免白边
                     // 底部标题（移除进度条）

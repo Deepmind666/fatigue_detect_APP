@@ -1,20 +1,33 @@
 package com.example.juicemachine.ui
 
+import android.content.SharedPreferences
 import android.content.Context
 import android.net.Uri
-import android.content.SharedPreferences
+import android.os.SystemClock
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.juicemachine.JuiceMachineApplication
 import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModel
+import com.example.juicemachine.ui.viewmodel.DrinkMenuViewModelFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed class Screen(val route: String) {
     object Ads : Screen("ads")
@@ -26,21 +39,61 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit) {
+fun AppNavigation(onFirstContentReady: () -> Unit) {
     val navController = rememberNavController()
-    val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val activity = context as? ComponentActivity
+    val app = activity?.application as? JuiceMachineApplication
+    val viewModelState = remember { mutableStateOf<DrinkMenuViewModel?>(null) }
+    val prewarmedRef = remember { BooleanArray(1) }
+    val splashReleasedRef = remember { BooleanArray(1) }
 
-    LaunchedEffect(Unit) { onFirstContentReady() }
+    fun requireViewModel(): DrinkMenuViewModel {
+        val existing = viewModelState.value
+        if (existing != null) return existing
+
+        val safeActivity = checkNotNull(activity)
+        val safeApp = checkNotNull(app)
+        val prefs = safeActivity.getSharedPreferences("juice_prefs", Context.MODE_PRIVATE)
+        val factory = DrinkMenuViewModelFactory(
+            repository = safeApp.repository,
+            hardwareManager = safeApp.hardwareManager,
+            orderRepository = safeApp.orderRepository,
+            sharedPreferences = prefs,
+            appContext = safeActivity.applicationContext
+        )
+        val vm = ViewModelProvider(safeActivity, factory)[DrinkMenuViewModel::class.java]
+        viewModelState.value = vm
+        return vm
+    }
+
+    fun releaseSplashOnce() {
+        if (!splashReleasedRef[0]) {
+            splashReleasedRef[0] = true
+            onFirstContentReady()
+        }
+    }
+
     LaunchedEffect(Unit) {
-        if (!isRunningOnEmulator()) {
-            viewModel.initializeHardwareAfterFirstFrame()
+        withFrameNanos { }
+        val start = SystemClock.uptimeMillis()
+        while (!splashReleasedRef[0] && SystemClock.uptimeMillis() - start < 2_500L) {
+            delay(50)
+        }
+        if (!splashReleasedRef[0]) releaseSplashOnce()
+    }
+
+    val vm = viewModelState.value
+    LaunchedEffect(vm) {
+        if (vm != null && !isRunningOnEmulator()) {
+            vm.initializeHardwareAfterFirstFrame()
         }
     }
 
     val prefs = remember(context) { context.getSharedPreferences("ads_prefs", Context.MODE_PRIVATE) }
+    val scope = rememberCoroutineScope()
 
-    fun computeAds(): List<AdItem> {
+    suspend fun computeAds(): List<AdItem> = withContext(Dispatchers.IO) {
         val json = prefs.getString("ads_image_uris", null)
         val persisted: List<AdItem> = try {
             if (json.isNullOrBlank()) emptyList() else org.json.JSONArray(json).let { arr ->
@@ -83,18 +136,18 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
             try { prefs.edit().remove("ads_image_uris").apply() } catch (_: Exception) {}
         }
         val builtIn = getBuiltInAds(context)
-        return when {
+        return@withContext when {
             persistedValid.isNotEmpty() -> persistedValid
             else -> builtIn
         }
     }
 
-    val imagesState = remember { mutableStateOf<List<AdItem>>(emptyList()) }
+    val imagesState = remember { mutableStateOf(getBuiltInAds(context)) }
     LaunchedEffect(Unit) { imagesState.value = computeAds() }
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == "ads_image_uris") {
-                imagesState.value = computeAds()
+                scope.launch { imagesState.value = computeAds() }
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -108,12 +161,29 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
         composable(Screen.Ads.route) {
             AdsScreen(
                 images = images,
-                intervalMs = 10_000L,
-                onNavigateToUser = { navController.navigate(Screen.DrinkMenu.route) },
-                onFirstImageReady = onFirstContentReady
+                pageHoldMs = 10_000L,
+                scrollDurationMs = 4_000,
+                onNavigateToUser = {
+                    navController.navigate(Screen.DrinkMenu.route)
+                },
+                onFirstImageReady = {
+                    releaseSplashOnce()
+                    if (!prewarmedRef[0]) {
+                        prewarmedRef[0] = true
+                        scope.launch {
+                            val t0 = SystemClock.uptimeMillis()
+                            while (SystemClock.uptimeMillis() - t0 < 600L) delay(50)
+                            runCatching { app?.preheatAdsAsync() }
+                            runCatching { app?.prewarmCoreDependenciesAsync() }
+                            runCatching { requireViewModel() }
+                        }
+                    }
+                }
             )
         }
         composable(Screen.DrinkMenu.route) {
+            val viewModel = requireViewModel()
+            val uiState by viewModel.uiState.collectAsState()
             LaunchedEffect(Unit) { viewModel.onDrinkMenuVisible() }
             DrinkMenuScreen(
                 uiState = uiState,
@@ -135,6 +205,8 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
             )
         }
         composable(Screen.Admin.route) {
+            val viewModel = requireViewModel()
+            val uiState by viewModel.uiState.collectAsState()
             AdminScreen(
                 recipes = uiState.recipes,
                 errorMessage = uiState.errorMessage,
@@ -158,6 +230,7 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
             )
         }
         composable(Screen.EditRecipe.route) {
+            val viewModel = requireViewModel()
             val s by viewModel.uiState.collectAsState()
             EditRecipeScreen(
                 recipe = s.recipeToEdit,
@@ -184,31 +257,36 @@ fun AppNavigation(viewModel: DrinkMenuViewModel, onFirstContentReady: () -> Unit
             StatisticsScreen(onNavigateBack = { navController.popBackStack() })
         }
         composable(Screen.Customer.route) {
+            val viewModel = requireViewModel()
             CustomerCleanScreen(onClean = viewModel::onCleanCommand, onStop = viewModel::onStopCommand, onBack = { navController.popBackStack() }, onTimeoutToAds = { navController.popBackStack() }, timeoutMs = 15_000L)
         }
     }
 
-    if (uiState.navigateToAdmin) {
-        LaunchedEffect(uiState.navigateToAdmin) {
-            if (uiState.navigateToAdmin) {
+    if (vm != null) {
+        val navigateToAdminFlow = remember(vm) { vm.uiState.map { it.navigateToAdmin }.distinctUntilChanged() }
+        val navigateToCustomerFlow = remember(vm) { vm.uiState.map { it.navigateToCustomer }.distinctUntilChanged() }
+        val navigateToEditFlow = remember(vm) { vm.uiState.map { it.navigateToEdit }.distinctUntilChanged() }
+
+        val navigateToAdmin by navigateToAdminFlow.collectAsState(initial = false)
+        val navigateToCustomer by navigateToCustomerFlow.collectAsState(initial = false)
+        val navigateToEdit by navigateToEditFlow.collectAsState(initial = false)
+
+        LaunchedEffect(navigateToAdmin) {
+            if (navigateToAdmin) {
                 navController.navigate(Screen.Admin.route)
-                viewModel.onAdminNavigated()
+                vm.onAdminNavigated()
             }
         }
-    }
-    if (uiState.navigateToCustomer) {
-        LaunchedEffect(uiState.navigateToCustomer) {
-            if (uiState.navigateToCustomer) {
+        LaunchedEffect(navigateToCustomer) {
+            if (navigateToCustomer) {
                 navController.navigate(Screen.Customer.route)
-                viewModel.onCustomerNavigated()
+                vm.onCustomerNavigated()
             }
         }
-    }
-    if (uiState.navigateToEdit) {
-        LaunchedEffect(uiState.navigateToEdit) {
-            if (uiState.navigateToEdit) {
+        LaunchedEffect(navigateToEdit) {
+            if (navigateToEdit) {
                 navController.navigate(Screen.EditRecipe.route)
-                viewModel.onEditNavigated()
+                vm.onEditNavigated()
             }
         }
     }

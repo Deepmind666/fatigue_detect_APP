@@ -169,7 +169,7 @@ fun AdminScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(modifier = Modifier.weight(1f)) {
-                items(recipes) { r ->
+                items(recipes, key = { it.id }) { r ->
                     RecipeRow(
                         recipe = r,
                         onEdit = { onEditRecipe(r) },
@@ -814,35 +814,41 @@ private fun AdsManagerDialog(
     } // end Ads Dialog
  
  @Composable
- private fun RecipeRow(
+private fun RecipeRow(
     recipe: Recipe,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        val defaultPainter = painterResource(id = getBeverageDrawableForRecipe(LocalContext.current, recipe.name))
-        if (!recipe.imageUri.isNullOrEmpty()) {
-        coil.compose.AsyncImage(
-            model = coil.request.ImageRequest.Builder(LocalContext.current)
-                .data(recipe.imageUri)
-                .crossfade(true)
-                .build(),
-            contentDescription = recipe.name,
-            modifier = Modifier.size(64.dp),
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-            error = defaultPainter,
-            fallback = defaultPainter
-        )
+        val defaultDrawableId = remember(context, recipe.name) { getBeverageDrawableForRecipe(context, recipe.name) }
+        val defaultPainter = painterResource(id = defaultDrawableId)
+        val imageUri = recipe.imageUri
+        if (!imageUri.isNullOrEmpty()) {
+            val request = remember(context, imageUri) {
+                ImageRequest.Builder(context)
+                    .data(imageUri)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = request,
+                contentDescription = recipe.name,
+                modifier = Modifier.size(64.dp),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                error = defaultPainter,
+                fallback = defaultPainter
+            )
         } else {
-        Image(
-            painter = defaultPainter,
-            contentDescription = recipe.name,
-            modifier = Modifier.size(64.dp)
-        )
+            Image(
+                painter = defaultPainter,
+                contentDescription = recipe.name,
+                modifier = Modifier.size(64.dp)
+            )
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = if (recipe.name == "山野栀子") "鸭屎香柠檬茶" else recipe.name, style = MaterialTheme.typography.titleMedium)

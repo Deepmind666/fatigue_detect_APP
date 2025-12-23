@@ -21,7 +21,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.annotation.SuppressLint
-// 新增：USB权限与设备广播
+    // 新增：USB权限与设备广播
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import com.example.juicemachine.util.DebugLogger
@@ -115,6 +115,9 @@ class HardwareManager(
     private var usbReceiverRegistered: Boolean = false
 
     private var lastPrimedWaterTopSpeed: Int? = null
+
+    private val adminFrame11Local = ThreadLocal.withInitial { ByteArray(11) }
+    private val adminPayload9Local = ThreadLocal.withInitial { ByteArray(9) }
 
     private fun indexOfByte(buf: List<Byte>, value: Byte, start: Int = 0): Int {
         for (i in start until buf.size) if (buf[i] == value) return i
@@ -553,6 +556,44 @@ class HardwareManager(
     
 
     private val writeTimeoutMs: Int = 500
+    private fun sendAdminCommand9(
+        cmd: Int,
+        p0: Int = 0,
+        p1: Int = 0,
+        p2: Int = 0,
+        p3: Int = 0,
+        forceFramed: Boolean? = null
+    ): Boolean {
+        val framed = forceFramed ?: useFramedProtocol
+        if (framed) {
+            val frame = adminFrame11Local.get()
+            frame[0] = 0xFF.toByte()
+            frame[1] = (cmd and 0xFF).toByte()
+            frame[2] = (p0 and 0xFF).toByte()
+            frame[3] = (p1 and 0xFF).toByte()
+            frame[4] = (p2 and 0xFF).toByte()
+            frame[5] = (p3 and 0xFF).toByte()
+            frame[6] = 0x00
+            frame[7] = 0x00
+            frame[8] = 0x00
+            frame[9] = 0x00
+            frame[10] = 0xFE.toByte()
+            return sendCommand(frame)
+        }
+
+        val payload = adminPayload9Local.get()
+        payload[0] = (cmd and 0xFF).toByte()
+        payload[1] = (p0 and 0xFF).toByte()
+        payload[2] = (p1 and 0xFF).toByte()
+        payload[3] = (p2 and 0xFF).toByte()
+        payload[4] = (p3 and 0xFF).toByte()
+        payload[5] = 0x00
+        payload[6] = 0x00
+        payload[7] = 0x00
+        payload[8] = 0x00
+        return sendCommand(payload)
+    }
+
     private fun sendCommand(frame: ByteArray): Boolean {
         val port = serialPort
         if (!isConnected || port == null) {
@@ -802,108 +843,68 @@ class HardwareManager(
 
     // 与后端文档一致：控制类子命令（清洗/加水 开始/停止）与 HX711 子命令
     fun sendCleanStart(): Boolean {
-        val payload9 = buildAdminPayload9(0x03, 0x01, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送清洗开始(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x03, p0 = 0x01, forceFramed = true)
     }
 
     fun sendCleanStop(): Boolean {
-        val payload9 = buildAdminPayload9(0x04, 0x01, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送清洗停止(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x04, p0 = 0x01, forceFramed = true)
     }
 
     // 急停：发送 9 数据位帧（FF + 9字节 + FE），与配方下单格式一致（数据位补零）
     fun sendEmergencyStop(): Boolean {
-        val payload9 = buildAdminPayload9(0x09, 0, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i(
-            "HardwareManager",
-            "发送急停(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}"
-        )
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x09, forceFramed = true)
     }
 
     fun sendWaterStart(): Boolean {
         // 文档对齐：加水开始不携带速度参数，后续速度由配方帧更新速度表决定
-        val payload9 = buildAdminPayload9(0x03, 0x02, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送加水开始(不携带速度)(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x03, p0 = 0x02, forceFramed = true)
     }
 
     // 新增：加水开始（携带水速，0-255 -> 16进制放入P1）
     fun sendWaterStart(speed: Int): Boolean {
         val sp = speed.coerceIn(0, 255)
-        val payload9 = buildAdminPayload9(0x03, 0x02, sp, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送加水开始(携带速度=${sp})(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x03, p0 = 0x02, p1 = sp, forceFramed = true)
     }
 
     fun sendWaterStop(): Boolean {
-        val payload9 = buildAdminPayload9(0x04, 0x02, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送加水停止(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x04, p0 = 0x02, forceFramed = true)
     }
 
     fun sendHX711Tare(): Boolean {
-        val payload9 = buildAdminPayload9(0x05, 0x01, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送HX711去皮(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x05, p0 = 0x01, forceFramed = true)
     }
 
     fun sendHX711Weigh(): Boolean {
-        val payload9 = buildAdminPayload9(0x05, 0x02, 0, 0, 0)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送HX711称重(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x05, p0 = 0x02, forceFramed = true)
     }
 
     fun sendHX711Calibrate(targetGrams: Int = 1000): Boolean {
         val hi = (targetGrams shr 8) and 0xFF
         val lo = targetGrams and 0xFF
-        val payload9 = buildAdminPayload9(0x05, 0x03, 0, hi, lo)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送HX711校准(FF + 9数据位 + FE): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x05, p0 = 0x03, p2 = hi, p3 = lo, forceFramed = true)
     }
 
     fun sendContinueCommand(): Boolean {
-        val payload9 = buildAdminPayload9(0x07, 0, 0, 0, 0)
-        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
-        return sendCommand(data)
+        return sendAdminCommand9(cmd = 0x07, forceFramed = null)
     }
 
     fun sendRestartCommand(): Boolean {
-        val payload9 = buildAdminPayload9(0x08, 0, 0, 0, 0)
-        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
-        return sendCommand(data)
+        return sendAdminCommand9(cmd = 0x08, forceFramed = null)
     }
 
     // 只出水：发送使用 11 字节（FF + 9 数据位 + FE），接收解析 7 字节
     fun sendWaterOnlyStart(): Boolean {
-        val payload9 = buildAdminPayload9(0x03, 0x02, 0x00, 0x00, 0x00)
-        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
-        return sendCommand(data)
+        return sendAdminCommand9(cmd = 0x03, p0 = 0x02, forceFramed = null)
     }
 
     // 只出水（携带水速，放入P1）：FF + [03 02 SP 00 00 00 00 00 00] + FE
     fun sendWaterOnlyStart(speed: Int): Boolean {
         val sp = speed.coerceIn(0, 255)
-        val payload9 = buildAdminPayload9(0x03, 0x02, sp, 0x00, 0x00)
-        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
-        return sendCommand(data)
+        return sendAdminCommand9(cmd = 0x03, p0 = 0x02, p1 = sp, forceFramed = null)
     }
 
     fun sendWaterOnlyStop(): Boolean {
-        val payload9 = buildAdminPayload9(0x04, 0x02, 0x00, 0x00, 0x00)
-        val data = if (useFramedProtocol) wrapWithBoundaries(payload9) else payload9
-        return sendCommand(data)
+        return sendAdminCommand9(cmd = 0x04, p0 = 0x02, forceFramed = null)
     }
 
     // 新增：预设水通道最高速度（通过发送零配方，仅更新速度表，不出液）
@@ -937,10 +938,7 @@ class HardwareManager(
         val useDefault = targetGrams == 1000
         val hi = if (useDefault) 0 else (targetGrams ushr 8) and 0xFF
         val lo = if (useDefault) 0 else (targetGrams and 0xFF)
-        val payload9 = buildAdminPayload9(0x05, 0x03, 0x00, hi, lo)
-        val frame = wrapWithBoundaries(payload9)
-        DebugLogger.i("HardwareManager", "发送标准校准(FF + 9数据位 + FE 11.8): ${frame.joinToString(" ") { "%02X".format(it) }}")
-        return sendCommand(frame)
+        return sendAdminCommand9(cmd = 0x05, p0 = 0x03, p2 = hi, p3 = lo, forceFramed = true)
     }
 
     fun disconnect() {

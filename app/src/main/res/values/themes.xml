@@ -4,8 +4,10 @@
         <!-- Android 12+ / backport: configure splash screen appearance -->
         <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/splash_bg</item>
         <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@drawable/ic_app_icon</item>
+        <item name="windowSplashScreenBackground">@color/splash_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_app_icon</item>
         <!-- Use the same theme after splash -->
         <item name="postSplashScreenTheme">@style/Theme.JuiceMachine</item>
-        <!-- 移除静态 windowBackground，避免卡在冷启动背景 -->
+        <item name="android:windowBackground">@color/splash_bg</item>
     </style>
 </resources>
